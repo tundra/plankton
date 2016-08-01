@@ -1,0 +1,13 @@
+----- data -----
+$a = array:1 int:0
+$b = array:1 $a
+yield array:1 $b
+
+----- bton -----
+29
+  29
+    29
+      08
+
+----- tton -----
+[[[0]]]

@@ -1,0 +1,14 @@
+----- data -----
+$a = array:1 int:0
+$b = array:1 int:1
+yield array:4 $a $b $a $b
+
+----- bton -----
+20 04
+  a0 29 08
+  a0 29 09 
+  a1 01
+  a1 00
+
+----- tton -----
+[&a:[0], &b:[1], &a, &b]

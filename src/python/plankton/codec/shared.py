@@ -1,0 +1,35 @@
+__all__ = []
+
+
+class Codec(object):
+
+  INT_P_TAG = 0x00
+  INT_M1_TAG = 0x07
+  INT_0_TAG = 0x08
+  INT_1_TAG = 0x09
+  INT_2_TAG = 0x0a
+  INT_M_TAG = 0x0f
+
+  SINGLETON_NULL_TAG = 0x10
+  SINGLETON_TRUE_TAG = 0x11
+  SINGLETON_FALSE_TAG = 0x12
+
+  ID_16_TAG = 0x14
+  ID_32_TAG = 0x15
+  ID_64_TAG = 0x16
+  ID_128_TAG = 0x17
+
+  ARRAY_N_TAG = 0x20
+  ARRAY_0_TAG = 0x28
+  ARRAY_1_TAG = 0x29
+  ARRAY_2_TAG = 0x2a
+  ARRAY_3_TAG = 0x2b
+
+  MAP_N_TAG = 0x30
+  MAP_0_TAG = 0x38
+  MAP_1_TAG = 0x39
+  MAP_2_TAG = 0x3a
+  MAP_3_TAG = 0x3b
+
+  ADD_REF_TAG = 0xa0
+  GET_REF_TAG = 0xa1
