@@ -1,10 +1,8 @@
 ----- data -----
-$a = array:1 $a
-yield $a
+yield seed:0 int:10
 
 ----- bton -----
-a0 21
-  a1 00
+60
+  08 0a
 
 ----- tton -----
-&a:[&a]

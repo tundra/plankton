@@ -1,0 +1,10 @@
+----- data -----
+yield seed:2 int:10 str:x int:0 str:y int:1
+
+----- bton -----
+62
+  08 0a
+  51 78 00
+  51 79 01
+
+----- tton -----

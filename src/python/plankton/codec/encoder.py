@@ -75,6 +75,8 @@ class Encoder(shared.Codec):
       self._encode_id(value)
     elif isinstance(value, bytearray):
       self._encode_blob(value)
+    elif isinstance(value, shared.Seed):
+      self._encode_seed(value)
     else:
       raise EncodeError()
 
@@ -180,6 +182,23 @@ class Encoder(shared.Codec):
     self._write_tag(shared.Codec.BLOB_N_TAG)
     self._write_unsigned_int(len(value))
     self._write_bytes(value)
+
+  def _encode_seed(self, seed):
+    if len(seed.fields) == 0:
+      self._write_tag(shared.Codec.SEED_0_TAG)
+    elif len(seed.fields) == 1:
+      self._write_tag(shared.Codec.SEED_1_TAG)
+    elif len(seed.fields) == 2:
+      self._write_tag(shared.Codec.SEED_2_TAG)
+    elif len(seed.fields) == 3:
+      self._write_tag(shared.Codec.SEED_3_TAG)
+    else:
+      self._write_tag(shared.Codec.SEED_N_TAG)
+      self._write_unsigned_int(len(seed.fields))
+    self._encode(seed.header)
+    for (field, value) in seed.fields.items():
+      self._encode(field)
+      self._encode(value)
 
   def _get_ref(self, ref_offset):
     distance = self.ref_count - ref_offset - 1

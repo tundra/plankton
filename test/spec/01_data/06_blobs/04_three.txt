@@ -2,7 +2,7 @@
 yield blob:abcdef
 
 ----- bton -----
-40 03 ab cd ef
+48 03 ab cd ef
 
 ----- tton -----
 %[abcdef]

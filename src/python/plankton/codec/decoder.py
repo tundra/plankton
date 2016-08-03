@@ -62,6 +62,9 @@ class DefaultDataFactory(object):
   def new_id(self, bytes):
     return uuid.UUID(bytes=bytes)
 
+  def new_seed(self):
+    return shared.Seed(None, collections.OrderedDict())
+
 
 class Decoder(shared.Codec):
 
@@ -102,6 +105,7 @@ class Decoder(shared.Codec):
     return self._decode()
 
   def _decode(self):
+    assert not _ATOMIC_READERS[self.current] is None, hex(self.current)
     return _ATOMIC_READERS[self.current](self)
 
   @atomic_reader(shared.Codec.INT_P_TAG)
@@ -307,6 +311,50 @@ class Decoder(shared.Codec):
     self._advance()
     length = self._read_unsigned_int()
     return self._read_block(length).decode(self.default_string_encoding)
+
+  @composite_constructor(
+    shared.Codec.SEED_0_TAG,
+    shared.Codec.SEED_1_TAG,
+    shared.Codec.SEED_2_TAG,
+    shared.Codec.SEED_3_TAG,
+    shared.Codec.SEED_N_TAG)
+  def _new_seed(self):
+    return self.factory.new_seed()
+
+  @composite_reader(shared.Codec.SEED_1_TAG)
+  def _read_fixed_seed(self, seed, size):
+    self._advance()
+    seed.header = self._decode()
+    for i in range(0, size):
+      field = self._decode()
+      value = self._decode()
+      seed.fields[field] = value
+
+  @composite_reader(shared.Codec.SEED_0_TAG)
+  def _seed_0(self, seed):
+    self._read_fixed_seed(seed, 0)
+
+  @composite_reader(shared.Codec.SEED_1_TAG)
+  def _seed_1(self, seed):
+    self._read_fixed_seed(seed, 1)
+
+  @composite_reader(shared.Codec.SEED_2_TAG)
+  def _seed_2(self, seed):
+    self._read_fixed_seed(seed, 2)
+
+  @composite_reader(shared.Codec.SEED_3_TAG)
+  def _seed_3(self, seed):
+    self._read_fixed_seed(seed, 3)
+
+  @composite_reader(shared.Codec.SEED_N_TAG)
+  def _seed_n(self, seed):
+    self._advance()
+    length = self._read_unsigned_int()
+    seed.header = self._decode()
+    for i in range(0, length):
+      field = self._decode()
+      value = self._decode()
+      seed.fields[field] = value
 
   @atomic_reader(shared.Codec.ADD_REF_TAG)
   def _add_ref(self):

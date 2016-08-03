@@ -1,14 +1,14 @@
-__all__ = []
+__all__ = ["Seed"]
 
 
 class Codec(object):
 
-  INT_P_TAG = 0x00
-  INT_M1_TAG = 0x07
-  INT_0_TAG = 0x08
-  INT_1_TAG = 0x09
-  INT_2_TAG = 0x0a
-  INT_M_TAG = 0x0f
+  INT_0_TAG = 0x00
+  INT_1_TAG = 0x01
+  INT_2_TAG = 0x02
+  INT_P_TAG = 0x08
+  INT_M_TAG = 0x09
+  INT_M1_TAG = 0x0f
 
   SINGLETON_NULL_TAG = 0x10
   SINGLETON_TRUE_TAG = 0x11
@@ -19,19 +19,19 @@ class Codec(object):
   ID_64_TAG = 0x16
   ID_128_TAG = 0x17
 
-  ARRAY_N_TAG = 0x20
-  ARRAY_0_TAG = 0x28
-  ARRAY_1_TAG = 0x29
-  ARRAY_2_TAG = 0x2a
-  ARRAY_3_TAG = 0x2b
+  ARRAY_0_TAG = 0x20
+  ARRAY_1_TAG = 0x21
+  ARRAY_2_TAG = 0x22
+  ARRAY_3_TAG = 0x23
+  ARRAY_N_TAG = 0x28
 
-  MAP_N_TAG = 0x30
-  MAP_0_TAG = 0x38
-  MAP_1_TAG = 0x39
-  MAP_2_TAG = 0x3a
-  MAP_3_TAG = 0x3b
+  MAP_0_TAG = 0x30
+  MAP_1_TAG = 0x31
+  MAP_2_TAG = 0x32
+  MAP_3_TAG = 0x33
+  MAP_N_TAG = 0x38
 
-  BLOB_N_TAG = 0x40
+  BLOB_N_TAG = 0x48
 
   DEFAULT_STRING_0_TAG = 0x50
   DEFAULT_STRING_1_TAG = 0x51
@@ -43,5 +43,18 @@ class Codec(object):
   DEFAULT_STRING_7_TAG = 0x57
   DEFAULT_STRING_N_TAG = 0x58
 
+  SEED_0_TAG = 0x60
+  SEED_1_TAG = 0x61
+  SEED_2_TAG = 0x62
+  SEED_3_TAG = 0x63
+  SEED_N_TAG = 0x68
+
   ADD_REF_TAG = 0xa0
   GET_REF_TAG = 0xa1
+
+
+class Seed(object):
+
+  def __init__(self, header, fields):
+    self.header = header
+    self.fields = fields

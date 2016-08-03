@@ -2,7 +2,7 @@
 yield blob:abcd
 
 ----- bton -----
-40 02 ab cd
+48 02 ab cd
 
 ----- tton -----
 %[abcd]

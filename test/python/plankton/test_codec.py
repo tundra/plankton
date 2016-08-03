@@ -92,6 +92,18 @@ class TestCase(object):
         value = self._eval(vars, parts[2 + 2 * i])
         result[key] = value
       return result
+    elif instr == "seed":
+      count = int(arg)
+      header = self._eval(vars, parts[1])
+      fields = OrderedDict()
+      result = plankton.codec.Seed(header, fields)
+      if not dest is None:
+        vars[dest] = result
+      for i in range(0, count):
+        field = self._eval(vars, parts[2 + 2 * i])
+        value = self._eval(vars, parts[3 + 2 * i])
+        fields[field] = value
+      return result
     raise Exception("Unexpected expression {}".format(expr))
 
   @classmethod
@@ -188,6 +200,7 @@ class TestCodec(unittest.TestCase):
           return False
 
       return True
+
     elif isinstance(a, dict):
       # Checks that don't traverse a or b.
       if not isinstance(b, dict):
@@ -209,6 +222,29 @@ class TestCodec(unittest.TestCase):
         if not k in b:
           return False
         if not cls.is_structurally_equal(a[k], b[k], assumed_equivs):
+          return False
+
+      return True
+
+    elif isinstance(a, plankton.codec.Seed):
+      # Checks that don't traverse a or b.
+      if not isinstance(b, plankton.codec.Seed):
+        return False
+      if not len(a.fields) == len(b.fields):
+        return False
+
+      equiv = (id(a), id(b))
+      if equiv in assumed_equivs:
+        return True
+
+      assumed_equivs.add(equiv)
+      if not cls.is_structurally_equal(a.header, b.header, assumed_equivs):
+        return False
+
+      for f in a.fields.keys():
+        if not f in b.fields:
+          return False
+        if not cls.is_structurally_equal(a.fields[f], b.fields[f], assumed_equivs):
           return False
 
       return True

@@ -3,9 +3,9 @@ $a = array:1 int:0
 yield array:1 $a
 
 ----- bton -----
-29
-  29
-    08
+21
+  21
+    00
 
 ----- tton -----
 [[0]]

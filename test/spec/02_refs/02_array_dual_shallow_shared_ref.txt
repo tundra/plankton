@@ -4,9 +4,9 @@ $b = array:1 int:1
 yield array:4 $a $b $a $b
 
 ----- bton -----
-20 04
-  a0 29 08
-  a0 29 09 
+28 04
+  a0 21 00
+  a0 21 01
   a1 01
   a1 00
 
