@@ -1,0 +1,8 @@
+----- data -----
+yield str:abcd
+
+----- bton -----
+54 61 62 63 64
+
+----- tton -----
+"abcd"

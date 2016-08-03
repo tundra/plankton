@@ -27,6 +27,7 @@ class Encoder(shared.Codec):
     self.refs = {}
     self.out = out
     self.ref_count = 0
+    self.default_string_encoding = "utf-8"
 
   @abstractmethod
   def _preprocess(self, value):
@@ -64,12 +65,16 @@ class Encoder(shared.Codec):
         self._write_tag(shared.Codec.SINGLETON_FALSE_TAG)
     elif isinstance(value, (int, long)):
       self._encode_int(value)
+    elif isinstance(value, basestring):
+      self._encode_string(value)
     elif self._is_array(value):
       self._encode_array(value)
     elif self._is_map(value):
       self._encode_map(value)
     elif isinstance(value, uuid.UUID):
       self._encode_id(value)
+    elif isinstance(value, bytearray):
+      self._encode_blob(value)
     else:
       raise EncodeError()
 
@@ -88,6 +93,29 @@ class Encoder(shared.Codec):
     else:
       self._write_tag(shared.Codec.INT_P_TAG)
       self._write_unsigned_int(value)
+
+  def _encode_string(self, value):
+    bytes = value.encode(self.default_string_encoding)
+    if len(bytes) == 0:
+      self._write_tag(shared.Codec.DEFAULT_STRING_0_TAG)
+    elif len(bytes) == 1:
+      self._write_tag(shared.Codec.DEFAULT_STRING_1_TAG)
+    elif len(bytes) == 2:
+      self._write_tag(shared.Codec.DEFAULT_STRING_2_TAG)
+    elif len(bytes) == 3:
+      self._write_tag(shared.Codec.DEFAULT_STRING_3_TAG)
+    elif len(bytes) == 4:
+      self._write_tag(shared.Codec.DEFAULT_STRING_4_TAG)
+    elif len(bytes) == 5:
+      self._write_tag(shared.Codec.DEFAULT_STRING_5_TAG)
+    elif len(bytes) == 6:
+      self._write_tag(shared.Codec.DEFAULT_STRING_6_TAG)
+    elif len(bytes) == 7:
+      self._write_tag(shared.Codec.DEFAULT_STRING_7_TAG)
+    else:
+      self._write_tag(shared.Codec.DEFAULT_STRING_N_TAG)
+      self._write_unsigned_int(len(bytes))
+    self._write_bytes(bytes)
 
   def _encode_array(self, value):
     if self._should_add_ref(value):
@@ -147,6 +175,11 @@ class Encoder(shared.Codec):
       assert ivalue < 2**16
       self._write_tag(shared.Codec.ID_16_TAG)
       self._write_bytes(value.bytes[14:16])
+
+  def _encode_blob(self, value):
+    self._write_tag(shared.Codec.BLOB_N_TAG)
+    self._write_unsigned_int(len(value))
+    self._write_bytes(value)
 
   def _get_ref(self, ref_offset):
     distance = self.ref_count - ref_offset - 1

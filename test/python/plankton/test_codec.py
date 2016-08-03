@@ -66,8 +66,12 @@ class TestCase(object):
       (instr, arg) = word.split(":")
       if instr == "int":
         return int(arg)
-      if instr == "id":
+      elif instr == "id":
         return uuid.UUID(arg.zfill(32))
+      elif instr == "blob":
+        return bytearray.fromhex(arg)
+      elif instr == "str":
+        return arg
     (instr, arg) = parts[0].split(":")
     if instr == "array":
       count = int(arg)

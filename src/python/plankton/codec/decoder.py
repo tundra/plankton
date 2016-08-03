@@ -71,6 +71,7 @@ class Decoder(shared.Codec):
     self.has_more = True
     self.refs = []
     self.factory = factory or DefaultDataFactory()
+    self.default_string_encoding = "utf-8"
 
   def _advance(self):
     s = self.input.read(1)
@@ -82,6 +83,17 @@ class Decoder(shared.Codec):
 
   def _advance_and_read_block(self, count):
     result = self.input.read(count)
+    self._advance()
+    return result
+
+  def _read_block(self, count):
+    result = bytearray(count)
+    if count == 0:
+      return result
+    else:
+      result[0] = self.current
+      if count > 1:
+        result[1:] = self.input.read(count-1)
     self._advance()
     return result
 
@@ -246,6 +258,55 @@ class Decoder(shared.Codec):
     key = self._decode()
     value = self._decode()
     map[key] = value
+
+  @atomic_reader(shared.Codec.BLOB_N_TAG)
+  def _blob_n(self):
+    self._advance()
+    length = self._read_unsigned_int()
+    return self._read_block(length)
+
+  @atomic_reader(shared.Codec.DEFAULT_STRING_0_TAG)
+  def _default_string_0(self):
+    self._advance()
+    return ""
+
+  def _read_fixed_string(self, length):
+    bytes = self._advance_and_read_block(length)
+    return bytes.encode(self.default_string_encoding)
+
+  @atomic_reader(shared.Codec.DEFAULT_STRING_1_TAG)
+  def _default_string_1(self):
+    return self._read_fixed_string(1)
+
+  @atomic_reader(shared.Codec.DEFAULT_STRING_2_TAG)
+  def _default_string_2(self):
+    return self._read_fixed_string(2)
+
+  @atomic_reader(shared.Codec.DEFAULT_STRING_3_TAG)
+  def _default_string_3(self):
+    return self._read_fixed_string(3)
+
+  @atomic_reader(shared.Codec.DEFAULT_STRING_4_TAG)
+  def _default_string_4(self):
+    return self._read_fixed_string(4)
+
+  @atomic_reader(shared.Codec.DEFAULT_STRING_5_TAG)
+  def _default_string_5(self):
+    return self._read_fixed_string(5)
+
+  @atomic_reader(shared.Codec.DEFAULT_STRING_6_TAG)
+  def _default_string_6(self):
+    return self._read_fixed_string(6)
+
+  @atomic_reader(shared.Codec.DEFAULT_STRING_7_TAG)
+  def _default_string_7(self):
+    return self._read_fixed_string(7)
+
+  @atomic_reader(shared.Codec.DEFAULT_STRING_N_TAG)
+  def _default_string_n(self):
+    self._advance()
+    length = self._read_unsigned_int()
+    return self._read_block(length).decode(self.default_string_encoding)
 
   @atomic_reader(shared.Codec.ADD_REF_TAG)
   def _add_ref(self):

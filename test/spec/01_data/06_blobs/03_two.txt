@@ -1,0 +1,8 @@
+----- data -----
+yield blob:abcd
+
+----- bton -----
+40 02 ab cd
+
+----- tton -----
+%[abcd]
