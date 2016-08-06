@@ -1,0 +1,18 @@
+----- data -----
+yield struct:4 0 int:10 1 int:11 2 int:12 3 int:13
+
+----- bton -----
+84
+  08 0a
+  08 0b
+  08 0c
+  08 0d
+
+----- bton -----
+% canonical: false
+
+88 02 01 11
+  08 0a
+  08 0b
+  08 0c
+  08 0d

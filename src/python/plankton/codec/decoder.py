@@ -1,11 +1,12 @@
 import collections
 import io
 import uuid
+import itertools
 
 from plankton.codec import shared
 
 
-__all__ = ["decode", "DefaultDataFactory"]
+__all__ = ["decode", "DefaultDataFactory", "Decoder"]
 
 
 _ATOMIC_READERS = [None] * 256
@@ -64,6 +65,9 @@ class DefaultDataFactory(object):
 
   def new_seed(self):
     return shared.Seed(None, collections.OrderedDict())
+
+  def new_struct(self):
+    return shared.Struct([])
 
 
 class Decoder(shared.Codec):
@@ -321,7 +325,6 @@ class Decoder(shared.Codec):
   def _new_seed(self):
     return self.factory.new_seed()
 
-  @composite_reader(shared.Codec.SEED_1_TAG)
   def _read_fixed_seed(self, seed, size):
     self._advance()
     seed.header = self._decode()
@@ -355,6 +358,114 @@ class Decoder(shared.Codec):
       field = self._decode()
       value = self._decode()
       seed.fields[field] = value
+
+  @composite_constructor(
+    shared.Codec.STRUCT_LINEAR_0_TAG,
+    shared.Codec.STRUCT_LINEAR_1_TAG,
+    shared.Codec.STRUCT_LINEAR_2_TAG,
+    shared.Codec.STRUCT_LINEAR_3_TAG,
+    shared.Codec.STRUCT_LINEAR_4_TAG,
+    shared.Codec.STRUCT_LINEAR_5_TAG,
+    shared.Codec.STRUCT_LINEAR_6_TAG,
+    shared.Codec.STRUCT_LINEAR_7_TAG,
+    shared.Codec.STRUCT_N_TAG)
+  def _new_struct(self):
+    return self.factory.new_struct()
+
+  def _read_fixed_struct(self, struct, tags):
+    self._advance()
+    for tag in tags:
+      value = self._decode()
+      struct.fields.append((tag, value))
+
+  @composite_reader(shared.Codec.STRUCT_LINEAR_0_TAG)
+  def _struct_linear_0(self, struct):
+    self._read_fixed_struct(struct, [])
+
+  @composite_reader(shared.Codec.STRUCT_LINEAR_1_TAG)
+  def _struct_linear_1(self, struct):
+    self._read_fixed_struct(struct, [0])
+
+  @composite_reader(shared.Codec.STRUCT_LINEAR_2_TAG)
+  def _struct_linear_2(self, struct):
+    self._read_fixed_struct(struct, [0, 1])
+
+  @composite_reader(shared.Codec.STRUCT_LINEAR_3_TAG)
+  def _struct_linear_3(self, struct):
+    self._read_fixed_struct(struct, [0, 1, 2])
+
+  @composite_reader(shared.Codec.STRUCT_LINEAR_4_TAG)
+  def _struct_linear_4(self, struct):
+    self._read_fixed_struct(struct, [0, 1, 2, 3])
+
+  @composite_reader(shared.Codec.STRUCT_LINEAR_5_TAG)
+  def _struct_linear_5(self, struct):
+    self._read_fixed_struct(struct, [0, 1, 2, 3, 4])
+
+  @composite_reader(shared.Codec.STRUCT_LINEAR_6_TAG)
+  def _struct_linear_6(self, struct):
+    self._read_fixed_struct(struct, [0, 1, 2, 3, 4, 5])
+
+  @composite_reader(shared.Codec.STRUCT_LINEAR_7_TAG)
+  def _struct_linear_7(self, struct):
+    self._read_fixed_struct(struct, [0, 1, 2, 3, 4, 5, 6])
+
+  @composite_reader(shared.Codec.STRUCT_N_TAG)
+  def _struct_n(self, struct):
+    self._advance()
+    length = self._read_unsigned_int()
+    tags = self._read_struct_tags(length)
+    for tag in tags:
+      value = self._decode()
+      struct.fields.append((tag, value))
+
+  def _decode_nibbles(self, nibbles):
+    nibble_offset = 0
+    while nibble_offset < len(nibbles):
+      value = nibbles[nibble_offset] & 0x7
+      value_offset = 3
+      while nibbles[nibble_offset] >= 0x8:
+        nibble_offset += 1
+        payload = (nibbles[nibble_offset] & 0x7) + 1
+        value += (payload << value_offset)
+        value_offset += 3
+      nibble_offset += 1
+      yield value
+
+  def _read_struct_tags(self, length):
+    nibbles = []
+    for byte in self._read_block(length):
+      nibbles.append((byte >> 4) & 0xF)
+      nibbles.append(byte & 0xF)
+    last_value = None
+    repeat_next_time = False
+    result = []
+    for current_delta in self._decode_nibbles(nibbles):
+      if last_value is None:
+        last_value = current_delta
+        result.append(last_value)
+      elif repeat_next_time:
+        result += [last_value] * current_delta
+        repeat_next_time = False
+      elif current_delta == 0:
+        assert last_value >= 0
+        repeat_next_time = True
+      else:
+        result.append(last_value + current_delta)
+        last_value += current_delta
+        repeat_next_time = False
+    return result
+
+  def _read_unsigned_int(self):
+    value = self.current & 0x7F
+    offset = 7
+    while self.current >= 0x80:
+      self._advance()
+      payload = (self.current & 0x7F) + 1
+      value += (payload << offset)
+      offset += 7
+    self._advance()
+    return value
 
   @atomic_reader(shared.Codec.ADD_REF_TAG)
   def _add_ref(self):

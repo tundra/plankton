@@ -5,7 +5,7 @@ import uuid
 from plankton.codec import shared
 
 
-__all__ = ["encode"]
+__all__ = ["encode", "Encoder"]
 
 
 class EncodeError(Exception):
@@ -77,6 +77,8 @@ class Encoder(shared.Codec):
       self._encode_blob(value)
     elif isinstance(value, shared.Seed):
       self._encode_seed(value)
+    elif isinstance(value, shared.Struct):
+      self._encode_struct(value)
     else:
       raise EncodeError()
 
@@ -199,6 +201,69 @@ class Encoder(shared.Codec):
     for (field, value) in seed.fields.items():
       self._encode(field)
       self._encode(value)
+
+  def _encode_struct(self, struct):
+    tags = [t for (t, v) in struct.fields]
+    if tags == []:
+      self._write_tag(shared.Codec.STRUCT_LINEAR_0_TAG)
+    elif tags == [0]:
+      self._write_tag(shared.Codec.STRUCT_LINEAR_1_TAG)
+    elif tags == [0, 1]:
+      self._write_tag(shared.Codec.STRUCT_LINEAR_2_TAG)
+    elif tags == [0, 1, 2]:
+      self._write_tag(shared.Codec.STRUCT_LINEAR_3_TAG)
+    elif tags == [0, 1, 2, 3]:
+      self._write_tag(shared.Codec.STRUCT_LINEAR_4_TAG)
+    elif tags == [0, 1, 2, 3, 4]:
+      self._write_tag(shared.Codec.STRUCT_LINEAR_5_TAG)
+    elif tags == [0, 1, 2, 3, 4, 5]:
+      self._write_tag(shared.Codec.STRUCT_LINEAR_6_TAG)
+    elif tags == [0, 1, 2, 3, 4, 5, 6]:
+      self._write_tag(shared.Codec.STRUCT_LINEAR_7_TAG)
+    else:
+      header = self._encode_struct_tags(tags)
+      self._write_tag(shared.Codec.STRUCT_N_TAG)
+      self._write_unsigned_int(len(header))
+      self._write_bytes(header)
+    for (tag, value) in struct.fields:
+      self._encode(value)
+
+  @staticmethod
+  def _encode_struct_tags(tags):
+    result = bytearray()
+    if len(tags) > 0:
+      top_nibble = [None]
+      def add_nibble(nibble):
+        if top_nibble[0] is None:
+          top_nibble[0] = nibble
+        else:
+          byte = (top_nibble[0] << 4) | nibble
+          result.append(byte)
+          top_nibble[0] = None
+      def add_value(value):
+        while value >= 0x8:
+          add_nibble((value & 0x7) | 0x8)
+          value = (value >> 3) - 1
+        add_nibble(value)
+      last_value = tags[0]
+      add_value(last_value)
+      index = 1
+      while index < len(tags):
+        tag = tags[index]
+        if tag == last_value:
+          end_index = index + 1
+          while end_index < len(tags) and tags[end_index] == last_value:
+            end_index += 1
+          add_value(0)
+          add_value(end_index - index)
+          index = end_index
+        else:
+          delta = tag - last_value
+          add_value(delta)
+          last_value = tag
+          index += 1
+      add_nibble(0)
+    return result
 
   def _get_ref(self, ref_offset):
     distance = self.ref_count - ref_offset - 1

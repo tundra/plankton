@@ -1,0 +1,13 @@
+----- data -----
+$s0 = struct:2 0 int:3 1 int:4
+$s1 = struct:2 0 int:5 1 int:6
+yield struct:2 0 $s0 1 $s1
+
+----- bton -----
+82
+  82
+    08 03
+    08 04
+  82
+    08 05
+    08 06

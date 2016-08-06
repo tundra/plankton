@@ -6,6 +6,7 @@ import os.path
 import re
 import unittest
 import uuid
+import io
 
 import plankton.codec
 
@@ -23,13 +24,23 @@ def _gen_test_case_files():
     yield test_case
 
 
+class BtonBlock(object):
+
+  def __init__(self, config, data):
+    self.config = config
+    self.data = data
+
+  def is_canonical(self):
+    return self.config.get("canonical", "true").lower() == "true"
+
+
 class TestCase(object):
   """Holds the parsed information about a test case from data/."""
 
-  def __init__(self, instrs, bton, tton):
+  def __init__(self, config, instrs, btons):
+    self.config = config
     self.instrs = instrs
-    self.bton = bton
-    self.tton = tton
+    self.btons = btons
 
   @property
   def data(self):
@@ -104,27 +115,50 @@ class TestCase(object):
         value = self._eval(vars, parts[3 + 2 * i])
         fields[field] = value
       return result
+    elif instr == "struct":
+      count = int(arg)
+      fields = []
+      result = plankton.codec.Struct(fields)
+      for i in range(0, count):
+        tag = int(parts[1 + 2 * i])
+        value = self._eval(vars, parts[2 + 2 * i])
+        fields.append((tag, value))
+      return result
     raise Exception("Unexpected expression {}".format(expr))
 
   @classmethod
   def parse(cls, source):
     lines = list(cls._strip_lines(source.splitlines()))
     offset = 0
-    while re.match(r"---+ data ---+", lines[offset]) == None:
-      offset += 1
-    offset += 1
-    instrs = []
-    while re.match(r"---+ bton ---+", lines[offset]) == None:
-      instrs.append(lines[offset])
-      offset += 1
-    offset += 1
-    bton_lines = []
-    while re.match(r"---+ tton ---+", lines[offset]) == None:
-      bton_lines.append(lines[offset])
-      offset += 1
-    bton = bytearray.fromhex("".join(bton_lines))
-    tton = "\n".join(lines[offset+1:])
-    return TestCase(instrs, bton, tton)
+    blocks = {}
+    while offset < len(lines):
+      # Scan until we find a block.
+      while offset < len(lines):
+        header_match = re.match(r"---+ (.*) ---+", lines[offset])
+        offset += 1
+        if header_match:
+          header = header_match.group(1)
+          break
+      config = {}
+      while offset < len(lines):
+        config_match = re.match(r"^%\s*([\w_]+)\s*:(.*)$", lines[offset])
+        if not config_match:
+          break
+        config[config_match.group(1).strip()] = config_match.group(2).strip()
+        offset += 1
+      block_lines = []
+      while offset < len(lines) and (re.match(r"---+ (.*) ---+", lines[offset]) == None):
+        block_lines.append(lines[offset])
+        offset += 1
+      if not header in blocks:
+        blocks[header] = []
+      blocks[header].append((config, block_lines))
+    instrs = blocks["data"][0][1]
+    btons = []
+    for (config, bton_lines) in blocks["bton"]:
+      bton = bytearray.fromhex("".join(bton_lines))
+      btons.append(BtonBlock(config, bton))
+    return TestCase(config, instrs, btons)
 
   @staticmethod
   def _strip_lines(lines):
@@ -166,18 +200,21 @@ class TestCodec(unittest.TestCase):
   def _run_encode_test_case(self, test_case):
     data = test_case.data
     encoded = plankton.codec.encode(data)
-    self.assertEqual(test_case.bton, encoded)
+    for bton in test_case.btons:
+      if bton.is_canonical():
+        self.assertEqual(bton.data, encoded)
 
   def _run_decode_test_case(self, test_case):
     data = test_case.data
-    decoded = plankton.codec.decode(test_case.bton)
-    self.assertStructurallyEqual(data, decoded)
+    for bton in test_case.btons:
+      decoded = plankton.codec.decode(bton.data)
+      self.assertStructurallyEqual(data, decoded)
 
   def assertStructurallyEqual(self, a, b):
-    self.assertTrue(self.is_structurally_equal(a, b), "{} == {}".format(a, b))
+    self.assertTrue(self.is_structurally_equal(a, b, set()), "{} == {}".format(a, b))
 
   @classmethod
-  def is_structurally_equal(cls, a, b, assumed_equivs=set()):
+  def is_structurally_equal(cls, a, b, assumed_equivs):
     if isinstance(a, (list, tuple)):
       # Checks that don't traverse a or b.
       if not isinstance(b, (list, tuple)):
@@ -230,7 +267,7 @@ class TestCodec(unittest.TestCase):
       # Checks that don't traverse a or b.
       if not isinstance(b, plankton.codec.Seed):
         return False
-      if not len(a.fields) == len(b.fields):
+      if len(a.fields) != len(b.fields):
         return False
 
       equiv = (id(a), id(b))
@@ -248,5 +285,28 @@ class TestCodec(unittest.TestCase):
           return False
 
       return True
+
+    elif isinstance(a, plankton.codec.Struct):
+      # Checks that don't traverse a or b.
+      if not isinstance(b, plankton.codec.Struct):
+        return False
+      if len(a.fields) != len(b.fields):
+        return False
+
+      equiv = (id(a), id(b))
+      if equiv in assumed_equivs:
+        return True
+
+      assumed_equivs.add(equiv)
+      for i in range(0, len(a.fields)):
+        (ta, va) = a.fields[i]
+        (tb, vb) = b.fields[i]
+        if ta != tb:
+          return False
+        if not cls.is_structurally_equal(va, vb, assumed_equivs):
+          return False
+
+      return True
+
     else:
       return a == b

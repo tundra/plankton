@@ -1,4 +1,4 @@
-__all__ = ["Seed"]
+__all__ = ["Seed", "Struct"]
 
 
 class Codec(object):
@@ -52,9 +52,28 @@ class Codec(object):
   ADD_REF_TAG = 0xa0
   GET_REF_TAG = 0xa1
 
+  STRUCT_LINEAR_0_TAG = 0x80
+  STRUCT_LINEAR_1_TAG = 0x81
+  STRUCT_LINEAR_2_TAG = 0x82
+  STRUCT_LINEAR_3_TAG = 0x83
+  STRUCT_LINEAR_4_TAG = 0x84
+  STRUCT_LINEAR_5_TAG = 0x85
+  STRUCT_LINEAR_6_TAG = 0x86
+  STRUCT_LINEAR_7_TAG = 0x87
+  STRUCT_N_TAG = 0x88
+
 
 class Seed(object):
 
   def __init__(self, header, fields):
     self.header = header
     self.fields = fields
+
+
+class Struct(object):
+
+  def __init__(self, fields):
+    self.fields = fields
+
+  def __str__(self):
+    return "#<Struct {}>".format(self.fields)
