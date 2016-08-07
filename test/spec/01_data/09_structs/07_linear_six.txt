@@ -13,7 +13,7 @@ yield struct:6 0 int:10 1 int:11 2 int:12 3 int:13 4 int:14 5 int:15
 ----- bton -----
 % canonical: false
 
-88 03 01 11 11
+88 06 01 11 11
   08 0a
   08 0b
   08 0c

@@ -4,27 +4,3 @@ yield struct:1 1 int:10
 ----- bton -----
 88 01 10
   08 0a
-
------ bton -----
-% canonical: false
-
-88 02 10 00
-  08 0a
-
------ bton -----
-% canonical: false
-
-88 03 10 00 00
-  08 0a
-
------ bton -----
-% canonical: false
-
-88 04 10 00 00 00
-  08 0a
-
------ bton -----
-% canonical: false
-
-88 07 10 00 00 00 00 00 00
-  08 0a

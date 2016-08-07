@@ -420,27 +420,50 @@ class Decoder(shared.Codec):
       struct.fields.append((tag, value))
 
   def _decode_nibbles(self, nibbles):
-    nibble_offset = 0
-    while nibble_offset < len(nibbles):
-      value = nibbles[nibble_offset] & 0x7
+    value = nibbles[nibble_offset] & 0x7
+    value_offset = 3
+    while nibbles[nibble_offset] >= 0x8:
+      nibble_offset += 1
+      payload = (nibbles[nibble_offset] & 0x7) + 1
+      value += (payload << value_offset)
+      value_offset += 3
+    nibble_offset += 1
+    yield value
+
+  class NibbleReader(object):
+
+    def __init__(self, decoder):
+      self.decoder = decoder
+      self.current = None
+      self.next = None
+
+    def next_unsigned_int(self):
+      self._advance()
+      value = self.current & 0x7
       value_offset = 3
-      while nibbles[nibble_offset] >= 0x8:
-        nibble_offset += 1
-        payload = (nibbles[nibble_offset] & 0x7) + 1
+      while self.current >= 0x8:
+        self._advance()
+        payload = (self.current & 0x7) + 1
         value += (payload << value_offset)
         value_offset += 3
-      nibble_offset += 1
-      yield value
+      return value
+
+    def _advance(self):
+      if self.next is None:
+        self.current = (self.decoder.current >> 4) & 0xF
+        self.next = self.decoder.current & 0xF
+        self.decoder._advance()
+      else:
+        self.current = self.next
+        self.next = None
 
   def _read_struct_tags(self, length):
-    nibbles = []
-    for byte in self._read_block(length):
-      nibbles.append((byte >> 4) & 0xF)
-      nibbles.append(byte & 0xF)
+    reader = Decoder.NibbleReader(self)
+    result = []
     last_value = None
     repeat_next_time = False
-    result = []
-    for current_delta in self._decode_nibbles(nibbles):
+    while len(result) < length:
+      current_delta = reader.next_unsigned_int()
       if last_value is None:
         last_value = current_delta
         result.append(last_value)
@@ -448,7 +471,6 @@ class Decoder(shared.Codec):
         result += [last_value] * current_delta
         repeat_next_time = False
       elif current_delta == 0:
-        assert last_value >= 0
         repeat_next_time = True
       else:
         result.append(last_value + current_delta)
