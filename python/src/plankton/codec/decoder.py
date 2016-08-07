@@ -280,7 +280,7 @@ class Decoder(shared.Codec):
 
   def _read_fixed_string(self, length):
     bytes = self._advance_and_read_block(length)
-    return bytes.encode(self.default_string_encoding)
+    return bytes.decode(self.default_string_encoding)
 
   @atomic_reader(shared.Codec.DEFAULT_STRING_1_TAG)
   def _default_string_1(self):

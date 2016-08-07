@@ -7,21 +7,36 @@ import re
 import unittest
 import uuid
 import io
+import pprint
 
 import plankton.codec
 
 
-def _gen_test_case_files():
+def load_tests(loader, tests, pattern):
   """Generates the absolute path to all the test cases under data/."""
-  data_root = os.path.join(os.path.dirname(__file__), '..', '..', 'spec')
+  suite = unittest.TestSuite()
+  data_root = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'spec')
   assert os.path.exists(data_root)
-  test_cases = []
-  for (dirpath, dirnames, filenames) in os.walk(os.path.abspath(data_root)):
+  test_files = []
+  absroot = os.path.abspath(data_root)
+  for (dirpath, dirnames, filenames) in os.walk(absroot):
     for filename in filenames:
       if filename.endswith(".txt"):
-        test_cases.append(os.path.join(dirpath, filename))
-  for test_case in test_cases:
-    yield test_case
+        test_file = os.path.join(dirpath, filename)
+        test_name = test_file[len(absroot)+1:]
+        test_class = _make_test_class(test_file, test_name)
+        suite.addTests(loader.loadTestsFromTestCase(test_class))
+  return suite
+
+
+def _make_test_class(test_file, test_name):
+  class CodecTest(AbstractCodecTest):
+    def get_test_file(self):
+      return test_file
+    def get_test_name(self):
+      return test_name
+  CodecTest.__qualname__ = CodecTest.__name__ = "CodecTest({})".format(test_name)
+  return CodecTest
 
 
 class BtonBlock(object):
@@ -174,44 +189,26 @@ def _parse_test_case(filename):
   return TestCase.parse(source)
 
 
-class TestCodecMeta(type):
+class AbstractCodecTest(unittest.TestCase):
 
-  def __new__(mcs, name, bases, dict):
-    def encode_test_case_method(test_case):
-      return lambda self: self._run_encode_test_case(test_case)
-    def decode_test_case_method(test_case):
-      return lambda self: self._run_decode_test_case(test_case)
+  def setUp(self):
+    self.test_case = _parse_test_case(self.get_test_file())
 
-    for test_case_file in _gen_test_case_files():
-      plankton_path = os.path.join("plankton", "data")
-      split = test_case_file.find(plankton_path) + len(plankton_path)
-      relative_path = test_case_file[split+1:-4]
-      test_base_name = re.sub(r"[^a-zA-Z0-9]", "_", relative_path)
-      test_case = _parse_test_case(test_case_file)
-
-      dict["test_encode_{}".format(test_base_name)] = encode_test_case_method(test_case)
-      dict["test_decode_{}".format(test_base_name)] = decode_test_case_method(test_case)
-    return type.__new__(mcs, name, bases, dict)
-
-
-class TestCodec(unittest.TestCase):
-  __metaclass__ = TestCodecMeta
-
-  def _run_encode_test_case(self, test_case):
-    data = test_case.data
+  def test_encode(self):
+    data = self.test_case.data
     encoded = plankton.codec.encode(data)
-    for bton in test_case.btons:
+    for bton in self.test_case.btons:
       if bton.is_canonical():
         self.assertEqual(bton.data, encoded)
 
-  def _run_decode_test_case(self, test_case):
-    data = test_case.data
-    for bton in test_case.btons:
+  def test_decode(self):
+    data = self.test_case.data
+    for bton in self.test_case.btons:
       decoded = plankton.codec.decode(bton.data)
       self.assertStructurallyEqual(data, decoded)
 
   def assertStructurallyEqual(self, a, b):
-    self.assertTrue(self.is_structurally_equal(a, b, set()), "{} == {}".format(a, b))
+    self.assertTrue(self.is_structurally_equal(a, b, set()))
 
   @classmethod
   def is_structurally_equal(cls, a, b, assumed_equivs):

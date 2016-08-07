@@ -1,5 +1,6 @@
 from abc import abstractmethod, ABCMeta
 import io
+import sys
 import uuid
 
 from plankton.codec import shared
@@ -14,6 +15,14 @@ class EncodeError(Exception):
 
 class SharedStructureDetected(Exception):
   pass
+
+
+if sys.version_info < (3,):
+  _INT_TYPES = (int, long)
+  _BASESTRING_TYPE = basestring
+else:
+  _INT_TYPES = (int,)
+  _BASESTRING_TYPE = str
 
 
 class Encoder(shared.Codec):
@@ -63,9 +72,9 @@ class Encoder(shared.Codec):
         self._write_tag(shared.Codec.SINGLETON_TRUE_TAG)
       else:
         self._write_tag(shared.Codec.SINGLETON_FALSE_TAG)
-    elif isinstance(value, (int, long)):
+    elif isinstance(value, _INT_TYPES):
       self._encode_int(value)
-    elif isinstance(value, basestring):
+    elif isinstance(value, _BASESTRING_TYPE):
       self._encode_string(value)
     elif self._is_array(value):
       self._encode_array(value)
