@@ -61,8 +61,7 @@ class Encoder(shared.Codec):
       assert value is False
       self._write_tag(shared.Codec.SINGLETON_FALSE_TAG)
 
-  def on_string(self, value):
-    bytes = value.encode(self._default_string_encoding)
+  def on_string(self, bytes, encoding):
     if len(bytes) == 0:
       self._write_tag(shared.Codec.DEFAULT_STRING_0_TAG)
     elif len(bytes) == 1:
@@ -110,21 +109,21 @@ class Encoder(shared.Codec):
       self._write_tag(shared.Codec.MAP_N_TAG)
       self._write_unsigned_int(length)
 
-  def on_id(self, value):
-    ivalue = value.int
+  def on_id(self, bytes):
+    ivalue = uuid.UUID(bytes=bytes).int
     if ivalue >= 2**64:
       self._write_tag(shared.Codec.ID_128_TAG)
-      self._write_bytes(value.bytes)
+      self._write_bytes(bytes)
     elif ivalue >= 2**32:
       self._write_tag(shared.Codec.ID_64_TAG)
-      self._write_bytes(value.bytes[8:16])
+      self._write_bytes(bytes[8:16])
     elif ivalue >= 2**16:
       self._write_tag(shared.Codec.ID_32_TAG)
-      self._write_bytes(value.bytes[12:16])
+      self._write_bytes(bytes[12:16])
     else:
       assert ivalue < 2**16
       self._write_tag(shared.Codec.ID_16_TAG)
-      self._write_bytes(value.bytes[14:16])
+      self._write_bytes(bytes[14:16])
 
   def on_blob(self, value):
     self._write_tag(shared.Codec.BLOB_N_TAG)
@@ -263,13 +262,13 @@ class ObjectGraphDecoder(object):
     elif isinstance(value, _INT_TYPES):
       return self._visitor.on_int(value)
     elif isinstance(value, _BASESTRING_TYPE):
-      return self._visitor.on_string(value)
+      return self._visitor.on_string(value.encode("utf-8"), None)
     elif self._is_array(value):
       return self._decode_array(value)
     elif self._is_map(value):
       return self._decode_map(value)
     elif isinstance(value, uuid.UUID):
-      return self._visitor.on_id(value)
+      return self._visitor.on_id(value.bytes)
     elif isinstance(value, bytearray):
       return self._visitor.on_blob(value)
     elif self._is_seed(value):
@@ -387,8 +386,8 @@ class ObjectTreeDecoder(ObjectGraphDecoder):
   assumption turns out not to hold.
   """
 
-  def __init__(self, out):
-    super(ObjectTreeDecoder, self).__init__(out)
+  def __init__(self, visitor):
+    super(ObjectTreeDecoder, self).__init__(visitor)
     self.ids_seen = set()
 
   def _preprocess(self, value):
@@ -417,8 +416,8 @@ class ReferenceTrackingObjectGraphDecoder(ObjectGraphDecoder):
   appropriately to represent them in the output.
   """
 
-  def __init__(self, out):
-    super(ReferenceTrackingObjectGraphDecoder, self).__init__(out)
+  def __init__(self, visitor):
+    super(ReferenceTrackingObjectGraphDecoder, self).__init__(visitor)
     self.has_seen_once = set()
     self.has_seen_twice = set()
     self.ref_offsets = {}

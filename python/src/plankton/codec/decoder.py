@@ -6,7 +6,7 @@ import itertools
 from plankton.codec import shared
 
 
-__all__ = ["decode", "DefaultDataFactory", "Decoder"]
+__all__ = ["decode", "DefaultDataFactory", "Builder"]
 
 
 class DefaultDataFactory(object):
@@ -31,10 +31,9 @@ class DefaultDataFactory(object):
     return shared.Struct([])
 
 
-class Decoder(shared.Codec):
+class Builder(shared.Codec):
 
-  def __init__(self, input, factory=None, default_string_encoding="utf-8"):
-    self._decoder = InstructionStreamDecoder(input)
+  def __init__(self, factory=None, default_string_encoding="utf-8"):
     self._factory = factory or DefaultDataFactory()
     self._default_string_encoding = default_string_encoding
     self._refs = []
@@ -53,19 +52,16 @@ class Decoder(shared.Codec):
     # The final result of parsing. It's totally valid for this to be None since
     # that's a valid parsing result.
     self._result = None
+    self._init()
 
-  def read(self):
+  def _init(self):
     # Schedule an end that doesn't do anything but that ensures that we don't
     # have to explicitly check for the bottom of the pending ends.
     self._schedule_end(2, 1, None, None)
     # Schedule an end that stores the result in the _result field.
     self._schedule_end(1, self._store_result, None, None)
 
-    # Keep running as long as the store-result end is still on the pending end
-    # stack.
-    while len(self._pending_ends) > 1:
-      self._decoder.decode_next(self)
-
+  def _get_result(self):
     # Check that the value and pending end stacks look like we expect at this
     # point.
     assert [None] == self._value_stack
@@ -570,8 +566,23 @@ class InstructionStreamDecoder(object):
     return result
 
 
+class StreamBuilder(Builder):
+
+  def __init__(self, input, factory=None, default_string_encoding="utf-8"):
+    super(StreamBuilder, self).__init__(factory, default_string_encoding)
+    self._decoder = InstructionStreamDecoder(input)
+
+  def read(self):
+    # Keep running as long as the store-result end is still on the pending end
+    # stack.
+    while len(self._pending_ends) > 1:
+      self._decoder.decode_next(self)
+
+    return self._get_result()
+
+
 def decode(input, factory=None):
   """Decode the given input as plankton data."""
   if isinstance(input, bytearray):
     input = io.BytesIO(input)
-  return Decoder(input, factory).read()
+  return StreamBuilder(input, factory).read()

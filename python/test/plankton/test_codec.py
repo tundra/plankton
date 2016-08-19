@@ -198,6 +198,9 @@ class AbstractCodecTest(unittest.TestCase):
     self.test_case = _parse_test_case(self.get_test_file())
 
   def test_encode(self):
+    """
+    Test that encoding the hardcoded data yields the expected bytes.
+    """
     data = self.test_case.data
     encoded = plankton.codec.encode(data)
     for bton in self.test_case.btons:
@@ -205,10 +208,24 @@ class AbstractCodecTest(unittest.TestCase):
         self.assertEqual(bton.data, encoded)
 
   def test_decode(self):
+    """
+    Test that decoding the hardcoded bytes yields the expected data.
+    """
     data = self.test_case.data
     for bton in self.test_case.btons:
       decoded = plankton.codec.decode(bton.data)
       self.assertStructurallyEqual(data, decoded)
+
+  def test_clone(self):
+    """
+    Test that traversing the data with the decoder yields a new value that is
+    identical to the input, a clone.
+    """
+    builder = plankton.codec.decoder.Builder()
+    decoder = plankton.codec.encoder.ReferenceTrackingObjectGraphDecoder(builder)
+    decoder.decode(self.test_case.data)
+    cloned = builder._get_result()
+    self.assertStructurallyEqual(self.test_case.data, cloned)
 
   def assertStructurallyEqual(self, a, b):
     self.assertTrue(self.is_structurally_equal(a, b, set()))
