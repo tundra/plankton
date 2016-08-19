@@ -4,7 +4,7 @@ yield array:2 $a $a
 
 ----- bton -----
 22
-  a0 21
+  21 a0
     00
   a1 00
 

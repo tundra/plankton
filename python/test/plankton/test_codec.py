@@ -23,9 +23,12 @@ def load_tests(loader, tests, pattern):
     for filename in filenames:
       if filename.endswith(".txt"):
         test_file = os.path.join(dirpath, filename)
-        test_name = test_file[len(absroot)+1:]
-        test_class = _make_test_class(test_file, test_name)
-        suite.addTests(loader.loadTestsFromTestCase(test_class))
+        test_files.append(test_file)
+  test_files.sort()
+  for test_file in test_files:
+    test_name = test_file[len(absroot)+1:]
+    test_class = _make_test_class(test_file, test_name)
+    suite.addTests(loader.loadTestsFromTestCase(test_class))
   return suite
 
 

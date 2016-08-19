@@ -131,9 +131,8 @@ class Encoder(shared.Codec):
     self._write_bytes(bytes)
 
   def _encode_array(self, value):
-    if self._should_add_ref(value):
-      self._add_ref()
-    else:
+    should_add_ref = self._should_add_ref(value)
+    if not should_add_ref:
       ref = self._get_backref(value)
       if not ref is None:
         return self._get_ref(ref)
@@ -148,13 +147,14 @@ class Encoder(shared.Codec):
     else:
       self._write_tag(shared.Codec.ARRAY_N_TAG)
       self._write_unsigned_int(len(value))
+    if should_add_ref:
+      self._add_ref()
     for elm in value:
       self._encode(elm)
 
   def _encode_map(self, value):
-    if self._should_add_ref(value):
-      self._add_ref()
-    else:
+    should_add_ref = self._should_add_ref(value)
+    if not should_add_ref:
       ref = self._get_backref(value)
       if not ref is None:
         return self._get_ref(ref)
@@ -169,6 +169,8 @@ class Encoder(shared.Codec):
     else:
       self._write_tag(shared.Codec.MAP_N_TAG)
       self._write_unsigned_int(len(value))
+    if should_add_ref:
+      self._add_ref()
     for (key, value) in value.items():
       self._encode(key)
       self._encode(value)
