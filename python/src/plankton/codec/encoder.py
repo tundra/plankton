@@ -33,65 +33,10 @@ class Encoder(shared.Codec):
   __metaclass__ = ABCMeta
 
   def __init__(self, out):
-    self.refs = {}
-    self.out = out
-    self.ref_count = 0
-    self.default_string_encoding = "utf-8"
+    self._out = out
+    self._default_string_encoding = "utf-8"
 
-  @abstractmethod
-  def _preprocess(self, value):
-    """Called before this encoder starts serializing the given value."""
-    pass
-
-  @abstractmethod
-  def _should_add_ref(self, value):
-    """
-    Returns true iff the subclass determines that we should create a ref to the
-    given value at this point in the stream.
-    """
-    pass
-
-  @abstractmethod
-  def _get_backref(self, value):
-    """
-    If at this point we should make a reference back to a previous occurrence of
-    the given value, return of absolute offset of that occurrence.
-    """
-
-  def write(self, value):
-    """Write the given value to this encoder's output stream."""
-    self._preprocess(value)
-    self._encode(value)
-
-  def _encode(self, value):
-    """Writes a value or subvalue to this encoder's output stream."""
-    if value is None:
-      self._write_tag(shared.Codec.SINGLETON_NULL_TAG)
-    elif isinstance(value, bool):
-      if value:
-        self._write_tag(shared.Codec.SINGLETON_TRUE_TAG)
-      else:
-        self._write_tag(shared.Codec.SINGLETON_FALSE_TAG)
-    elif isinstance(value, _INT_TYPES):
-      self._encode_int(value)
-    elif isinstance(value, _BASESTRING_TYPE):
-      self._encode_string(value)
-    elif self._is_array(value):
-      self._encode_array(value)
-    elif self._is_map(value):
-      self._encode_map(value)
-    elif isinstance(value, uuid.UUID):
-      self._encode_id(value)
-    elif isinstance(value, bytearray):
-      self._encode_blob(value)
-    elif isinstance(value, shared.Seed):
-      self._encode_seed(value)
-    elif isinstance(value, shared.Struct):
-      self._encode_struct(value)
-    else:
-      raise EncodeError()
-
-  def _encode_int(self, value):
+  def on_int(self, value):
     if value == 0:
       self._write_tag(shared.Codec.INT_0_TAG)
     elif value == 1:
@@ -107,8 +52,17 @@ class Encoder(shared.Codec):
       self._write_tag(shared.Codec.INT_P_TAG)
       self._write_unsigned_int(value)
 
-  def _encode_string(self, value):
-    bytes = value.encode(self.default_string_encoding)
+  def on_singleton(self, value):
+    if value is None:
+      self._write_tag(shared.Codec.SINGLETON_NULL_TAG)
+    elif value is True:
+      self._write_tag(shared.Codec.SINGLETON_TRUE_TAG)
+    else:
+      assert value is False
+      self._write_tag(shared.Codec.SINGLETON_FALSE_TAG)
+
+  def on_string(self, value):
+    bytes = value.encode(self._default_string_encoding)
     if len(bytes) == 0:
       self._write_tag(shared.Codec.DEFAULT_STRING_0_TAG)
     elif len(bytes) == 1:
@@ -130,52 +84,33 @@ class Encoder(shared.Codec):
       self._write_unsigned_int(len(bytes))
     self._write_bytes(bytes)
 
-  def _encode_array(self, value):
-    should_add_ref = self._should_add_ref(value)
-    if not should_add_ref:
-      ref = self._get_backref(value)
-      if not ref is None:
-        return self._get_ref(ref)
-    if len(value) == 0:
+  def on_begin_array(self, length):
+    if length == 0:
       self._write_tag(shared.Codec.ARRAY_0_TAG)
-    elif len(value) == 1:
+    elif length == 1:
       self._write_tag(shared.Codec.ARRAY_1_TAG)
-    elif len(value) == 2:
+    elif length == 2:
       self._write_tag(shared.Codec.ARRAY_2_TAG)
-    elif len(value) == 3:
+    elif length == 3:
       self._write_tag(shared.Codec.ARRAY_3_TAG)
     else:
       self._write_tag(shared.Codec.ARRAY_N_TAG)
-      self._write_unsigned_int(len(value))
-    if should_add_ref:
-      self._add_ref()
-    for elm in value:
-      self._encode(elm)
+      self._write_unsigned_int(length)
 
-  def _encode_map(self, value):
-    should_add_ref = self._should_add_ref(value)
-    if not should_add_ref:
-      ref = self._get_backref(value)
-      if not ref is None:
-        return self._get_ref(ref)
-    if len(value) == 0:
+  def on_begin_map(self, length):
+    if length == 0:
       self._write_tag(shared.Codec.MAP_0_TAG)
-    elif len(value) == 1:
+    elif length == 1:
       self._write_tag(shared.Codec.MAP_1_TAG)
-    elif len(value) == 2:
+    elif length == 2:
       self._write_tag(shared.Codec.MAP_2_TAG)
-    elif len(value) == 3:
+    elif length == 3:
       self._write_tag(shared.Codec.MAP_3_TAG)
     else:
       self._write_tag(shared.Codec.MAP_N_TAG)
-      self._write_unsigned_int(len(value))
-    if should_add_ref:
-      self._add_ref()
-    for (key, value) in value.items():
-      self._encode(key)
-      self._encode(value)
+      self._write_unsigned_int(length)
 
-  def _encode_id(self, value):
+  def on_id(self, value):
     ivalue = value.int
     if ivalue >= 2**64:
       self._write_tag(shared.Codec.ID_128_TAG)
@@ -191,30 +126,25 @@ class Encoder(shared.Codec):
       self._write_tag(shared.Codec.ID_16_TAG)
       self._write_bytes(value.bytes[14:16])
 
-  def _encode_blob(self, value):
+  def on_blob(self, value):
     self._write_tag(shared.Codec.BLOB_N_TAG)
     self._write_unsigned_int(len(value))
     self._write_bytes(value)
 
-  def _encode_seed(self, seed):
-    if len(seed.fields) == 0:
+  def on_begin_seed(self, length):
+    if length == 0:
       self._write_tag(shared.Codec.SEED_0_TAG)
-    elif len(seed.fields) == 1:
+    elif length == 1:
       self._write_tag(shared.Codec.SEED_1_TAG)
-    elif len(seed.fields) == 2:
+    elif length == 2:
       self._write_tag(shared.Codec.SEED_2_TAG)
-    elif len(seed.fields) == 3:
+    elif length == 3:
       self._write_tag(shared.Codec.SEED_3_TAG)
     else:
       self._write_tag(shared.Codec.SEED_N_TAG)
-      self._write_unsigned_int(len(seed.fields))
-    self._encode(seed.header)
-    for (field, value) in seed.fields.items():
-      self._encode(field)
-      self._encode(value)
+      self._write_unsigned_int(length)
 
-  def _encode_struct(self, struct):
-    tags = [t for (t, v) in struct.fields]
+  def on_begin_struct(self, tags):
     if tags == []:
       self._write_tag(shared.Codec.STRUCT_LINEAR_0_TAG)
     elif tags == [0]:
@@ -235,8 +165,6 @@ class Encoder(shared.Codec):
       self._write_tag(shared.Codec.STRUCT_N_TAG)
       self._write_unsigned_int(len(tags))
       self._write_struct_tags(tags)
-    for (tag, value) in struct.fields:
-      self._encode(value)
 
   def _write_struct_tags(self, tags):
     if len(tags) == 0:
@@ -273,14 +201,12 @@ class Encoder(shared.Codec):
         index += 1
     add_nibble(0)
 
-  def _get_ref(self, ref_offset):
-    distance = self.ref_count - ref_offset - 1
+  def on_get_ref(self, distance):
     self._write_tag(shared.Codec.GET_REF_TAG)
     self._write_unsigned_int(distance)
 
-  def _add_ref(self):
+  def on_add_ref(self):
     self._write_tag(shared.Codec.ADD_REF_TAG)
-    self.ref_count += 1
 
   def _write_unsigned_int(self, value):
     assert value >= 0
@@ -290,13 +216,117 @@ class Encoder(shared.Codec):
     self._write_byte(value)
 
   def _write_bytes(self, data):
-    self.out.write(data)
+    self._out.write(data)
 
   def _write_byte(self, byte):
-    self.out.write(bytearray([byte]))
+    self._out.write(bytearray([byte]))
 
   def _write_tag(self, byte):
     self._write_byte(byte)
+
+  def on_invalid_value(self, value):
+    raise Exception("Invalid value {}".format(value))
+
+
+class ObjectGraphDecoder(object):
+
+  def __init__(self, visitor):
+    self._visitor = visitor
+
+  @abstractmethod
+  def _preprocess(self, value):
+    """Called before this encoder starts serializing the given value."""
+    pass
+
+  @abstractmethod
+  def _should_add_ref(self, value):
+    """
+    Returns true iff the subclass determines that we should create a ref to the
+    given value at this point in the stream.
+    """
+    pass
+
+  @abstractmethod
+  def _get_backref(self, value):
+    """
+    If at this point we should make a reference back to a previous occurrence of
+    the given value, return of absolute offset of that occurrence.
+    """
+
+  def decode(self, value):
+    self._preprocess(value)
+    return self._decode(value)
+
+  def _decode(self, value):
+    if (value is None) or isinstance(value, bool):
+      return self._visitor.on_singleton(value)
+    elif isinstance(value, _INT_TYPES):
+      return self._visitor.on_int(value)
+    elif isinstance(value, _BASESTRING_TYPE):
+      return self._visitor.on_string(value)
+    elif self._is_array(value):
+      return self._decode_array(value)
+    elif self._is_map(value):
+      return self._decode_map(value)
+    elif isinstance(value, uuid.UUID):
+      return self._visitor.on_id(value)
+    elif isinstance(value, bytearray):
+      return self._visitor.on_blob(value)
+    elif self._is_seed(value):
+      return self._decode_seed(value)
+    elif self._is_struct(value):
+      return self._decode_struct(value)
+    else:
+      return self._visitor.on_invalid_value(value)
+
+  def _decode_array(self, array):
+    should_add_ref = self._should_add_ref(array)
+    if not should_add_ref:
+      ref = self._get_backref(array)
+      if not ref is None:
+        return self._visitor.on_get_ref(ref)
+    self._visitor.on_begin_array(len(array))
+    if should_add_ref:
+      self._visitor.on_add_ref()
+    for value in self._traverse_composite(array):
+      self._decode(value)
+
+  def _decode_map(self, map):
+    should_add_ref = self._should_add_ref(map)
+    if not should_add_ref:
+      ref = self._get_backref(map)
+      if not ref is None:
+        return self._visitor.on_get_ref(ref)
+    self._visitor.on_begin_map(len(map))
+    if should_add_ref:
+      self._visitor.on_add_ref()
+    for value in self._traverse_composite(map):
+      self._decode(value)
+
+  def _decode_seed(self, seed):
+    should_add_ref = self._should_add_ref(seed)
+    if not should_add_ref:
+      ref = self._get_backref(seed)
+      if not ref is None:
+        return self._visitor.on_get_ref(seed)
+    self._visitor.on_begin_seed(len(seed.fields))
+    if should_add_ref:
+      self._visitor.on_add_ref()
+    self._decode(seed.header)
+    for value in self._traverse_composite(seed):
+      self._decode(value)
+
+  def _decode_struct(self, struct):
+    should_add_ref = self._should_add_ref(struct)
+    if not should_add_ref:
+      ref = self._get_backref(struct)
+      if not ref is None:
+        return self._visitor.on_get_ref(struct)
+    self._visitor.on_begin_struct([t for (t, v) in struct.fields])
+    if should_add_ref:
+      self._visitor.on_add_ref()
+    for value in self._traverse_composite(struct):
+      self._decode(value)
 
   @staticmethod
   def _is_array(value):
@@ -308,9 +338,49 @@ class Encoder(shared.Codec):
     """Is the given value one we'll consider a map?"""
     return isinstance(value, dict)
 
+  @staticmethod
+  def _is_struct(value):
+    """Is the given value one we'll consider a struct?"""
+    return isinstance(value, shared.Struct)
+
+  @staticmethod
+  def _is_seed(value):
+    """Is the given value one we'll consider a seed?"""
+    return isinstance(value, shared.Seed)
+
+  @classmethod
+  def _is_composite(cls, value):
+    return (cls._is_array(value)
+        or cls._is_map(value)
+        or cls._is_struct(value)
+        or cls._is_seed(value))
+
+  @classmethod
+  def _traverse_composite(cls, value):
+    """
+    For a given composite value generates all the sub-values one at at time.
+    Note that for the composites where values come in pairs (like key-value for
+    maps) this generates them alternatingly the same way they'll appear in the
+    encoded format.
+    """
+    if cls._is_array(value):
+      for elm in value:
+        yield elm
+    elif cls._is_map(value):
+      for (k, v) in value.items():
+        yield k
+        yield v
+    elif cls._is_struct(value):
+      for (t, v) in value.fields:
+        yield v
+    else:
+      assert cls._is_seed(value)
+      for (f, v) in value.fields.items():
+        yield f
+        yield v
 
 
-class TreeEncoder(Encoder):
+class ObjectTreeDecoder(ObjectGraphDecoder):
   """
   An encoder that assumes that the input is strictly tree shaped (that is, there
   are no cycles or shared substructures) and throws an exception if that
@@ -318,7 +388,7 @@ class TreeEncoder(Encoder):
   """
 
   def __init__(self, out):
-    super(TreeEncoder, self).__init__(out)
+    super(ObjectTreeDecoder, self).__init__(out)
     self.ids_seen = set()
 
   def _preprocess(self, value):
@@ -341,33 +411,28 @@ class TreeEncoder(Encoder):
     return False
 
 
-class ReferenceTrackingEncoder(Encoder):
+class ReferenceTrackingObjectGraphDecoder(ObjectGraphDecoder):
   """
   An encoder that keeps track of shared subexpressions and inserts references
   appropriately to represent them in the output.
   """
 
   def __init__(self, out):
-    super(ReferenceTrackingEncoder, self).__init__(out)
+    super(ReferenceTrackingObjectGraphDecoder, self).__init__(out)
     self.has_seen_once = set()
     self.has_seen_twice = set()
     self.ref_offsets = {}
+    self._ref_count = 0
 
   def _preprocess(self, value):
     self._look_for_shared_structure(value)
 
   def _look_for_shared_structure(self, value):
-    if self._is_array(value):
+    if self._is_composite(value):
       if self._check_if_already_seen(value):
         return
-      for elm in value:
+      for elm in self._traverse_composite(value):
         self._look_for_shared_structure(elm)
-    elif self._is_map(value):
-      if self._check_if_already_seen(value):
-        return
-      for (k, v) in value.items():
-        self._look_for_shared_structure(k)
-        self._look_for_shared_structure(v)
 
   def _check_if_already_seen(self, value):
     """
@@ -383,7 +448,11 @@ class ReferenceTrackingEncoder(Encoder):
       return False
 
   def _get_backref(self, value):
-    return self.ref_offsets.get(id(value))
+    offset = self.ref_offsets.get(id(value))
+    if offset is None:
+      return None
+    else:
+      return self._ref_count - offset - 1
 
   def _should_add_ref(self, value):
     value_id = id(value)
@@ -393,22 +462,24 @@ class ReferenceTrackingEncoder(Encoder):
     elif value_id in self.has_seen_twice:
       # Preprocessing says we'll want to make a reference to this and we haven't
       # seen it before so this looks like the time to make the reference.
-      self.ref_offsets[value_id] = self.ref_count
+      self.ref_offsets[value_id] = self._ref_count
+      self._ref_count += 1
       return True
     else:
       return False
 
 
-def _encode_with_encoder(encoder_type, value):
+def _encode_with_decoder(decoder_type, value):
     out = io.BytesIO()
-    encoder_type(out).write(value)
+    encoder = Encoder(out)
+    decoder_type(encoder).decode(value)
     return out.getvalue()
 
 
 def encode(value):
   try:
     # Assume the value is tree-shaped and try encoding it as such.
-    return _encode_with_encoder(TreeEncoder, value)
+    return _encode_with_decoder(ObjectTreeDecoder, value)
   except SharedStructureDetected:
     # It wasn't tree shaped -- fall back on reference tracking then.
-    return _encode_with_encoder(ReferenceTrackingEncoder, value)
+    return _encode_with_decoder(ReferenceTrackingObjectGraphDecoder, value)
