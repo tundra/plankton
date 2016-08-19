@@ -6,46 +6,7 @@ import itertools
 from plankton.codec import shared
 
 
-__all__ = ["decode", "DefaultDataFactory", "Decoder"]
-
-
-_ATOMIC_READERS = [None] * 256
-_COMPOSITE_CONSTRUCTORS = [None] * 256
-_COMPOSITE_READERS = [None] * 256
-
-
-def atomic_reader(instr):
-  """Marks a reader for a type that can't be referenced."""
-  def register_reader(method):
-    _ATOMIC_READERS[instr] = method
-    return method
-  return register_reader
-
-
-def composite_constructor(*instrs):
-  """Marks a constructor for a type that can be referenced."""
-  def register_constructor(method):
-    for instr in instrs:
-      _COMPOSITE_CONSTRUCTORS[instr] = method
-    return method
-  return register_constructor
-
-
-def composite_reader(instr):
-  """
-  Marks the reader that populates an already constructed value for a type that
-  can be referenced.
-  """
-  def register_handler(method):
-    constr = _COMPOSITE_CONSTRUCTORS[instr]
-    def atomic_reader(self):
-      value = constr(self)
-      method(self, value)
-      return value
-    _ATOMIC_READERS[instr] = atomic_reader
-    _COMPOSITE_READERS[instr] = method
-    return method
-  return register_handler
+__all__ = ["decode", "DefaultDataFactory", "Builder"]
 
 
 class DefaultDataFactory(object):
@@ -70,15 +31,182 @@ class DefaultDataFactory(object):
     return shared.Struct([])
 
 
-class Decoder(shared.Codec):
+class Builder(shared.Codec):
 
-  def __init__(self, input, factory=None):
+  def __init__(self, factory=None, default_string_encoding="utf-8"):
+    self._factory = factory or DefaultDataFactory()
+    self._default_string_encoding = default_string_encoding
+    self._refs = []
+    # The stack of values we've seen so far but haven't packed into a composite
+    # value of some sort.
+    self._value_stack = []
+    # A stack of info about how to pack values into composites when we've
+    # collected enough values.
+    self._pending_ends = []
+    # The last value we've seen but only if a ref can be created to it, if the
+    # last value was atomic this will be None. Note that since None itself is
+    # atomic there is no ambiguity between "holding no reffable value" and
+    # "holding a reffable value that happens to be None" because None is never
+    # reffable.
+    self._last_reffable = None
+    # The final result of parsing. It's totally valid for this to be None since
+    # that's a valid parsing result.
+    self._result = None
+    self._init()
+
+  def _init(self):
+    # Schedule an end that doesn't do anything but that ensures that we don't
+    # have to explicitly check for the bottom of the pending ends.
+    self._schedule_end(2, 1, None, None)
+    # Schedule an end that stores the result in the _result field.
+    self._schedule_end(1, self._store_result, None, None)
+
+  def _get_result(self):
+    # Check that the value and pending end stacks look like we expect at this
+    # point.
+    assert [None] == self._value_stack
+    assert len(self._pending_ends) == 1
+
+    return self._result
+
+  def _store_result(self, total_count, open_result, values, data):
+    [self._result] = values
+    self._push(None)
+
+  def on_invalid_instruction(self, code):
+    raise Exception("Invalid instruction 0x{:x}".format(code))
+
+  def on_int(self, value):
+    self._last_reffable = None
+    self._push(value)
+
+  def on_singleton(self, value):
+    self._last_reffable = None
+    self._push(value)
+
+  def on_id(self, data):
+    self._last_reffable = None
+    self._push(self._factory.new_id(data))
+
+  def on_begin_array(self, length):
+    array = self._last_reffable = self._factory.new_array()
+    if length == 0:
+      self._push(array)
+    else:
+      self._schedule_end(length, self._end_array, array, None)
+
+  def _end_array(self, total_length, array, values, unused):
+    array[:] = values
+    self._push(array)
+
+  def on_begin_map(self, length):
+    map = self._last_reffable = self._factory.new_map()
+    if length == 0:
+      self._push(map)
+    else:
+      self._schedule_end(2 * length, self._end_map, map, None)
+
+  def _end_map(self, total_length, map, values, unused):
+    for i in range(0, total_length, 2):
+      map[values[i]] = values[i+1]
+    self._push(map)
+
+  def on_blob(self, data):
+    self._last_reffable = None
+    self._push(data)
+
+  def on_string(self, data, encoding):
+    if not encoding:
+      encoding = self._default_string_encoding
+    self._push(data.decode(encoding))
+
+  def on_begin_seed(self, field_count):
+    seed = self._last_reffable = self._factory.new_seed()
+    self._schedule_end(1, self._end_seed_header, seed, field_count)
+
+  def _end_seed_header(self, one, seed, header_values, field_count):
+    [header] = header_values
+    seed.header = header
+    if field_count == 0:
+      self._push(seed)
+    else:
+      self._schedule_end(2 * field_count, self._end_seed, seed, None)
+
+  def _end_seed(self, total_count, seed, field_values, unused):
+    for i in range(0, total_count, 2):
+      seed.fields[field_values[i]] = field_values[i+1]
+    self._push(seed)
+
+  def on_begin_struct(self, tags):
+    struct = self._last_reffable = self._factory.new_struct()
+    tag_count = len(tags)
+    if tag_count == 0:
+      self._push(struct)
+    else:
+      self._schedule_end(tag_count, self._end_struct, struct, tags)
+
+  def _end_struct(self, total_length, struct, values, tags):
+    for i in range(0, len(tags)):
+      struct.fields.append((tags[i], values[i]))
+    self._push(struct)
+
+  def on_add_ref(self):
+    assert not self._last_reffable is None
+    self._refs.append(self._last_reffable)
+    # Once you've added one ref you can't add any more so clear last_reffable.
+    self._last_reffable = None
+
+  def on_get_ref(self, offset):
+    self._last_reffable = None
+    index = len(self._refs) - offset - 1
+    self._push(self._refs[index])
+
+  def _push(self, value):
+    """
+    Push a value on top of the value stack and execute any pending ends that
+    are now ready to be executed.
+    """
+    self._value_stack.append(value)
+    self._pending_ends[-1][1] += 1
+    if self._pending_ends[-1][0] == self._pending_ends[-1][1]:
+      [total_count, added_count, callback, open_result, data] = self._pending_ends.pop()
+      values = self._value_stack[-total_count:]
+      del self._value_stack[-total_count:]
+      # The callback may or may not push a value which will cause this to be
+      # called again and then we'll deal with any pending ends further down
+      # the pending end stack.
+      callback(total_count, open_result, values, data)
+
+  def _schedule_end(self, total_count, callback, open_result, data):
+    """
+    Schedule the given callback to be called after total_count values have
+    become available. The count has to be > 0 because that simplifies things
+    and also, if the number of remaining values is 0 the caller can just
+    create the result immediately.
+    """
+    assert total_count > 0
+    assert callback
+    self._pending_ends.append([total_count, 0, callback, open_result, data])
+
+
+_INSTRUCTION_DECODERS = [None] * 256
+
+
+def decoder(instr):
+  """Marks a reader for a type that can't be referenced."""
+  def register_decoder(method):
+    _INSTRUCTION_DECODERS[instr] = method
+    return method
+  return register_decoder
+
+
+class InstructionStreamDecoder(object):
+
+  def __init__(self, input):
     self.input = input
     self.current = None
     self.has_more = True
-    self.refs = []
-    self.factory = factory or DefaultDataFactory()
-    self.default_string_encoding = "utf-8"
+    self._advance()
 
   def _advance(self):
     s = self.input.read(1)
@@ -104,320 +232,279 @@ class Decoder(shared.Codec):
     self._advance()
     return result
 
-  def read(self):
+  def _read_unsigned_int(self):
+    value = self.current & 0x7F
+    offset = 7
+    while self.current >= 0x80:
+      self._advance()
+      payload = (self.current & 0x7F) + 1
+      value += (payload << offset)
+      offset += 7
     self._advance()
-    return self._decode()
+    return value
 
-  def _decode(self):
-    assert not _ATOMIC_READERS[self.current] is None, hex(self.current)
-    return _ATOMIC_READERS[self.current](self)
+  def decode_next(self, callback):
+    assert self.has_more
+    decoder = _INSTRUCTION_DECODERS[self.current]
+    if decoder:
+      return decoder(self, callback)
+    else:
+      return callback.on_invalid_instruction(self.current)
 
-  @atomic_reader(shared.Codec.INT_P_TAG)
-  def _int_p(self):
+  @decoder(shared.Codec.INT_P_TAG)
+  def _int_p(self, callback):
     self._advance()
-    return self._read_unsigned_int()
+    return callback.on_int(self._read_unsigned_int())
 
-  @atomic_reader(shared.Codec.INT_M1_TAG)
-  def _int_m1(self):
+  @decoder(shared.Codec.INT_M1_TAG)
+  def _int_m1(self, callback):
     self._advance()
-    return -1
+    return callback.on_int(-1)
 
-  @atomic_reader(shared.Codec.INT_0_TAG)
-  def _int_0(self):
+  @decoder(shared.Codec.INT_0_TAG)
+  def _int_0(self, callback):
     self._advance()
-    return 0
+    return callback.on_int(0)
 
-  @atomic_reader(shared.Codec.INT_1_TAG)
-  def _int_1(self):
+  @decoder(shared.Codec.INT_1_TAG)
+  def _int_1(self, callback):
     self._advance()
-    return 1
+    return callback.on_int(1)
 
-  @atomic_reader(shared.Codec.INT_2_TAG)
-  def _int_2(self):
+  @decoder(shared.Codec.INT_2_TAG)
+  def _int_2(self, callback):
     self._advance()
-    return 2
+    return callback.on_int(2)
 
-  @atomic_reader(shared.Codec.INT_M_TAG)
-  def _int_m(self):
+  @decoder(shared.Codec.INT_M_TAG)
+  def _int_m(self, callback):
     self._advance()
-    return -(self._read_unsigned_int() + 1)
+    return callback.on_int(-(self._read_unsigned_int() + 1))
 
-  @atomic_reader(shared.Codec.SINGLETON_NULL_TAG)
-  def _singleton_null(self):
+  @decoder(shared.Codec.SINGLETON_NULL_TAG)
+  def _singleton_null(self, callback):
     self._advance()
-    return None
+    return callback.on_singleton(None)
 
-  @atomic_reader(shared.Codec.SINGLETON_TRUE_TAG)
-  def _singleton_true(self):
+  @decoder(shared.Codec.SINGLETON_TRUE_TAG)
+  def _singleton_true(self, callback):
     self._advance()
-    return True
+    return callback.on_singleton(True)
 
-  @atomic_reader(shared.Codec.SINGLETON_FALSE_TAG)
-  def _singleton_false(self):
+  @decoder(shared.Codec.SINGLETON_FALSE_TAG)
+  def _singleton_null(self, callback):
     self._advance()
-    return False
+    return callback.on_singleton(False)
 
-  @atomic_reader(shared.Codec.ID_16_TAG)
-  def _id_16(self):
+  @decoder(shared.Codec.ID_16_TAG)
+  def _id_16(self, callback):
     data = self._advance_and_read_block(2)
-    return self.factory.new_id(b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0" + data)
+    return callback.on_id(b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0" + data)
 
-  @atomic_reader(shared.Codec.ID_32_TAG)
-  def _id_32(self):
+  @decoder(shared.Codec.ID_32_TAG)
+  def _id_32(self, callback):
     data = self._advance_and_read_block(4)
-    return self.factory.new_id(b"\0\0\0\0\0\0\0\0\0\0\0\0" + data)
+    return callback.on_id(b"\0\0\0\0\0\0\0\0\0\0\0\0" + data)
 
-  @atomic_reader(shared.Codec.ID_64_TAG)
-  def _id_64(self):
+  @decoder(shared.Codec.ID_64_TAG)
+  def _id_64(self, callback):
     data = self._advance_and_read_block(8)
-    return self.factory.new_id(b"\0\0\0\0\0\0\0\0" + data)
+    return callback.on_id(b"\0\0\0\0\0\0\0\0" + data)
 
-  @atomic_reader(shared.Codec.ID_128_TAG)
-  def _id_128(self):
+  @decoder(shared.Codec.ID_128_TAG)
+  def _id_128(self, callback):
     data = self._advance_and_read_block(16)
-    return self.factory.new_id(data)
+    return callback.on_id(data)
 
-  @composite_constructor(
-    shared.Codec.ARRAY_N_TAG,
-    shared.Codec.ARRAY_0_TAG,
-    shared.Codec.ARRAY_1_TAG,
-    shared.Codec.ARRAY_2_TAG,
-    shared.Codec.ARRAY_3_TAG)
-  def _new_array(self):
-    return self.factory.new_array()
+  @decoder(shared.Codec.ARRAY_0_TAG)
+  def _array_0(self, callback):
+    self._advance()
+    return callback.on_begin_array(0)
 
-  @composite_reader(shared.Codec.ARRAY_N_TAG)
-  def _array_n(self, array):
+  @decoder(shared.Codec.ARRAY_1_TAG)
+  def _array_1(self, callback):
+    self._advance()
+    return callback.on_begin_array(1)
+
+  @decoder(shared.Codec.ARRAY_2_TAG)
+  def _array_2(self, callback):
+    self._advance()
+    return callback.on_begin_array(2)
+
+  @decoder(shared.Codec.ARRAY_3_TAG)
+  def _array_3(self, callback):
+    self._advance()
+    return callback.on_begin_array(3)
+
+  @decoder(shared.Codec.ARRAY_N_TAG)
+  def _array_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
-    for i in range(0, length):
-      array.append(self._decode())
+    return callback.on_begin_array(length)
 
-  @composite_reader(shared.Codec.ARRAY_0_TAG)
-  def _array_0(self, array):
+  @decoder(shared.Codec.MAP_0_TAG)
+  def _map_0(self, callback):
     self._advance()
+    return callback.on_begin_map(0)
 
-  @composite_reader(shared.Codec.ARRAY_1_TAG)
-  def _array_1(self, array):
+  @decoder(shared.Codec.MAP_1_TAG)
+  def _map_1(self, callback):
     self._advance()
-    array.append(self._decode())
+    return callback.on_begin_map(1)
 
-  @composite_reader(shared.Codec.ARRAY_2_TAG)
-  def _array_2(self, array):
+  @decoder(shared.Codec.MAP_2_TAG)
+  def _map_2(self, callback):
     self._advance()
-    array.append(self._decode())
-    array.append(self._decode())
+    return callback.on_begin_map(2)
 
-  @composite_reader(shared.Codec.ARRAY_3_TAG)
-  def _array_3(self, array):
+  @decoder(shared.Codec.MAP_3_TAG)
+  def _map_3(self, callback):
     self._advance()
-    array.append(self._decode())
-    array.append(self._decode())
-    array.append(self._decode())
+    return callback.on_begin_map(3)
 
-  @composite_constructor(
-    shared.Codec.MAP_N_TAG,
-    shared.Codec.MAP_0_TAG,
-    shared.Codec.MAP_1_TAG,
-    shared.Codec.MAP_2_TAG,
-    shared.Codec.MAP_3_TAG)
-  def _new_map(self):
-    return self.factory.new_map()
-
-  @composite_reader(shared.Codec.MAP_N_TAG)
-  def _map_n(self, map):
+  @decoder(shared.Codec.MAP_N_TAG)
+  def _map_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
-    for i in range(0, length):
-      key = self._decode()
-      value = self._decode()
-      map[key] = value
+    return callback.on_begin_map(length)
 
-  @composite_reader(shared.Codec.MAP_0_TAG)
-  def _map_0(self, map):
-    self._advance()
-
-  @composite_reader(shared.Codec.MAP_1_TAG)
-  def _map_1(self, map):
-    self._advance()
-    key = self._decode()
-    value = self._decode()
-    map[key] = value
-
-  @composite_reader(shared.Codec.MAP_2_TAG)
-  def _map_2(self, map):
-    self._advance()
-    key = self._decode()
-    value = self._decode()
-    map[key] = value
-    key = self._decode()
-    value = self._decode()
-    map[key] = value
-
-  @composite_reader(shared.Codec.MAP_3_TAG)
-  def _map_3(self, map):
-    self._advance()
-    key = self._decode()
-    value = self._decode()
-    map[key] = value
-    key = self._decode()
-    value = self._decode()
-    map[key] = value
-    key = self._decode()
-    value = self._decode()
-    map[key] = value
-
-  @atomic_reader(shared.Codec.BLOB_N_TAG)
-  def _blob_n(self):
+  @decoder(shared.Codec.BLOB_N_TAG)
+  def _blob_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
-    return self._read_block(length)
+    data = self._read_block(length)
+    return callback.on_blob(data)
 
-  @atomic_reader(shared.Codec.DEFAULT_STRING_0_TAG)
-  def _default_string_0(self):
+  @decoder(shared.Codec.DEFAULT_STRING_0_TAG)
+  def _default_string_0(self, callback):
     self._advance()
-    return ""
+    return callback.on_string(b"", None)
 
-  def _read_fixed_string(self, length):
-    bytes = self._advance_and_read_block(length)
-    return bytes.decode(self.default_string_encoding)
+  @decoder(shared.Codec.DEFAULT_STRING_1_TAG)
+  def _default_string_1(self, callback):
+    bytes = self._advance_and_read_block(1)
+    return callback.on_string(bytes, None)
 
-  @atomic_reader(shared.Codec.DEFAULT_STRING_1_TAG)
-  def _default_string_1(self):
-    return self._read_fixed_string(1)
+  @decoder(shared.Codec.DEFAULT_STRING_2_TAG)
+  def _default_string_2(self, callback):
+    bytes = self._advance_and_read_block(2)
+    return callback.on_string(bytes, None)
 
-  @atomic_reader(shared.Codec.DEFAULT_STRING_2_TAG)
-  def _default_string_2(self):
-    return self._read_fixed_string(2)
+  @decoder(shared.Codec.DEFAULT_STRING_3_TAG)
+  def _default_string_3(self, callback):
+    bytes = self._advance_and_read_block(3)
+    return callback.on_string(bytes, None)
 
-  @atomic_reader(shared.Codec.DEFAULT_STRING_3_TAG)
-  def _default_string_3(self):
-    return self._read_fixed_string(3)
+  @decoder(shared.Codec.DEFAULT_STRING_4_TAG)
+  def _default_string_4(self, callback):
+    bytes = self._advance_and_read_block(4)
+    return callback.on_string(bytes, None)
 
-  @atomic_reader(shared.Codec.DEFAULT_STRING_4_TAG)
-  def _default_string_4(self):
-    return self._read_fixed_string(4)
+  @decoder(shared.Codec.DEFAULT_STRING_5_TAG)
+  def _default_string_5(self, callback):
+    bytes = self._advance_and_read_block(5)
+    return callback.on_string(bytes, None)
 
-  @atomic_reader(shared.Codec.DEFAULT_STRING_5_TAG)
-  def _default_string_5(self):
-    return self._read_fixed_string(5)
+  @decoder(shared.Codec.DEFAULT_STRING_6_TAG)
+  def _default_string_6(self, callback):
+    bytes = self._advance_and_read_block(6)
+    return callback.on_string(bytes, None)
 
-  @atomic_reader(shared.Codec.DEFAULT_STRING_6_TAG)
-  def _default_string_6(self):
-    return self._read_fixed_string(6)
+  @decoder(shared.Codec.DEFAULT_STRING_7_TAG)
+  def _default_string_7(self, callback):
+    bytes = self._advance_and_read_block(7)
+    return callback.on_string(bytes, None)
 
-  @atomic_reader(shared.Codec.DEFAULT_STRING_7_TAG)
-  def _default_string_7(self):
-    return self._read_fixed_string(7)
-
-  @atomic_reader(shared.Codec.DEFAULT_STRING_N_TAG)
-  def _default_string_n(self):
-    self._advance()
-    length = self._read_unsigned_int()
-    return self._read_block(length).decode(self.default_string_encoding)
-
-  @composite_constructor(
-    shared.Codec.SEED_0_TAG,
-    shared.Codec.SEED_1_TAG,
-    shared.Codec.SEED_2_TAG,
-    shared.Codec.SEED_3_TAG,
-    shared.Codec.SEED_N_TAG)
-  def _new_seed(self):
-    return self.factory.new_seed()
-
-  def _read_fixed_seed(self, seed, size):
-    self._advance()
-    seed.header = self._decode()
-    for i in range(0, size):
-      field = self._decode()
-      value = self._decode()
-      seed.fields[field] = value
-
-  @composite_reader(shared.Codec.SEED_0_TAG)
-  def _seed_0(self, seed):
-    self._read_fixed_seed(seed, 0)
-
-  @composite_reader(shared.Codec.SEED_1_TAG)
-  def _seed_1(self, seed):
-    self._read_fixed_seed(seed, 1)
-
-  @composite_reader(shared.Codec.SEED_2_TAG)
-  def _seed_2(self, seed):
-    self._read_fixed_seed(seed, 2)
-
-  @composite_reader(shared.Codec.SEED_3_TAG)
-  def _seed_3(self, seed):
-    self._read_fixed_seed(seed, 3)
-
-  @composite_reader(shared.Codec.SEED_N_TAG)
-  def _seed_n(self, seed):
+  @decoder(shared.Codec.DEFAULT_STRING_N_TAG)
+  def _default_string_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
-    seed.header = self._decode()
-    for i in range(0, length):
-      field = self._decode()
-      value = self._decode()
-      seed.fields[field] = value
+    bytes = self._read_block(length)
+    return callback.on_string(bytes, None)
 
-  @composite_constructor(
-    shared.Codec.STRUCT_LINEAR_0_TAG,
-    shared.Codec.STRUCT_LINEAR_1_TAG,
-    shared.Codec.STRUCT_LINEAR_2_TAG,
-    shared.Codec.STRUCT_LINEAR_3_TAG,
-    shared.Codec.STRUCT_LINEAR_4_TAG,
-    shared.Codec.STRUCT_LINEAR_5_TAG,
-    shared.Codec.STRUCT_LINEAR_6_TAG,
-    shared.Codec.STRUCT_LINEAR_7_TAG,
-    shared.Codec.STRUCT_N_TAG)
-  def _new_struct(self):
-    return self.factory.new_struct()
-
-  def _read_fixed_struct(self, struct, tags):
+  @decoder(shared.Codec.SEED_0_TAG)
+  def _seed_0(self, callback):
     self._advance()
-    for tag in tags:
-      value = self._decode()
-      struct.fields.append((tag, value))
+    return callback.on_begin_seed(0)
 
-  @composite_reader(shared.Codec.STRUCT_LINEAR_0_TAG)
-  def _struct_linear_0(self, struct):
-    self._read_fixed_struct(struct, [])
+  @decoder(shared.Codec.SEED_1_TAG)
+  def _seed_1(self, callback):
+    self._advance()
+    return callback.on_begin_seed(1)
 
-  @composite_reader(shared.Codec.STRUCT_LINEAR_1_TAG)
-  def _struct_linear_1(self, struct):
-    self._read_fixed_struct(struct, [0])
+  @decoder(shared.Codec.SEED_2_TAG)
+  def _seed_2(self, callback):
+    self._advance()
+    return callback.on_begin_seed(2)
 
-  @composite_reader(shared.Codec.STRUCT_LINEAR_2_TAG)
-  def _struct_linear_2(self, struct):
-    self._read_fixed_struct(struct, [0, 1])
+  @decoder(shared.Codec.SEED_3_TAG)
+  def _seed_3(self, callback):
+    self._advance()
+    return callback.on_begin_seed(3)
 
-  @composite_reader(shared.Codec.STRUCT_LINEAR_3_TAG)
-  def _struct_linear_3(self, struct):
-    self._read_fixed_struct(struct, [0, 1, 2])
+  @decoder(shared.Codec.SEED_N_TAG)
+  def _seed_n(self, callback):
+    self._advance()
+    length = self._read_unsigned_int()
+    return callback.on_begin_seed(length)
 
-  @composite_reader(shared.Codec.STRUCT_LINEAR_4_TAG)
-  def _struct_linear_4(self, struct):
-    self._read_fixed_struct(struct, [0, 1, 2, 3])
+  @decoder(shared.Codec.STRUCT_LINEAR_0_TAG)
+  def _struct_linear_0(self, callback):
+    self._advance()
+    return callback.on_begin_struct([])
 
-  @composite_reader(shared.Codec.STRUCT_LINEAR_5_TAG)
-  def _struct_linear_5(self, struct):
-    self._read_fixed_struct(struct, [0, 1, 2, 3, 4])
+  @decoder(shared.Codec.STRUCT_LINEAR_1_TAG)
+  def _struct_linear_1(self, callback):
+    self._advance()
+    return callback.on_begin_struct([0])
 
-  @composite_reader(shared.Codec.STRUCT_LINEAR_6_TAG)
-  def _struct_linear_6(self, struct):
-    self._read_fixed_struct(struct, [0, 1, 2, 3, 4, 5])
+  @decoder(shared.Codec.STRUCT_LINEAR_2_TAG)
+  def _struct_linear_2(self, callback):
+    self._advance()
+    return callback.on_begin_struct([0, 1])
 
-  @composite_reader(shared.Codec.STRUCT_LINEAR_7_TAG)
-  def _struct_linear_7(self, struct):
-    self._read_fixed_struct(struct, [0, 1, 2, 3, 4, 5, 6])
+  @decoder(shared.Codec.STRUCT_LINEAR_3_TAG)
+  def _struct_linear_3(self, callback):
+    self._advance()
+    return callback.on_begin_struct([0, 1, 2])
 
-  @composite_reader(shared.Codec.STRUCT_N_TAG)
-  def _struct_n(self, struct):
+  @decoder(shared.Codec.STRUCT_LINEAR_4_TAG)
+  def _struct_linear_4(self, callback):
+    self._advance()
+    return callback.on_begin_struct([0, 1, 2, 3])
+
+  @decoder(shared.Codec.STRUCT_LINEAR_5_TAG)
+  def _struct_linear_5(self, callback):
+    self._advance()
+    return callback.on_begin_struct([0, 1, 2, 3, 4])
+
+  @decoder(shared.Codec.STRUCT_LINEAR_6_TAG)
+  def _struct_linear_6(self, callback):
+    self._advance()
+    return callback.on_begin_struct([0, 1, 2, 3, 4, 5])
+
+  @decoder(shared.Codec.STRUCT_LINEAR_7_TAG)
+  def _struct_linear_7(self, callback):
+    self._advance()
+    return callback.on_begin_struct([0, 1, 2, 3, 4, 5, 6])
+
+  @decoder(shared.Codec.STRUCT_N_TAG)
+  def _struct_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     tags = self._read_struct_tags(length)
-    for tag in tags:
-      value = self._decode()
-      struct.fields.append((tag, value))
+    return callback.on_begin_struct(tags)
+
+  @decoder(shared.Codec.ADD_REF_TAG)
+  def _add_ref(self, callback):
+    self._advance()
+    return callback.on_add_ref()
+
+  @decoder(shared.Codec.GET_REF_TAG)
+  def _get_ref(self, callback):
+    self._advance()
+    offset = self._read_unsigned_int()
+    return callback.on_get_ref(offset)
 
   def _decode_nibbles(self, nibbles):
     value = nibbles[nibble_offset] & 0x7
@@ -458,7 +545,7 @@ class Decoder(shared.Codec):
         self.next = None
 
   def _read_struct_tags(self, length):
-    reader = Decoder.NibbleReader(self)
+    reader = self.NibbleReader(self)
     result = []
     last_value = None
     repeat_next_time = False
@@ -478,47 +565,24 @@ class Decoder(shared.Codec):
         repeat_next_time = False
     return result
 
-  def _read_unsigned_int(self):
-    value = self.current & 0x7F
-    offset = 7
-    while self.current >= 0x80:
-      self._advance()
-      payload = (self.current & 0x7F) + 1
-      value += (payload << offset)
-      offset += 7
-    self._advance()
-    return value
 
-  @atomic_reader(shared.Codec.ADD_REF_TAG)
-  def _add_ref(self):
-    self._advance()
-    constructor = _COMPOSITE_CONSTRUCTORS[self.current]
-    value = constructor(self)
-    self.refs.append(value)
-    _COMPOSITE_READERS[self.current](self, value)
-    return value
+class StreamBuilder(Builder):
 
-  @atomic_reader(shared.Codec.GET_REF_TAG)
-  def _get_ref(self):
-    self._advance()
-    offset = self._read_unsigned_int()
-    index = len(self.refs) - offset - 1
-    return self.refs[index]
+  def __init__(self, input, factory=None, default_string_encoding="utf-8"):
+    super(StreamBuilder, self).__init__(factory, default_string_encoding)
+    self._decoder = InstructionStreamDecoder(input)
 
-  def _read_unsigned_int(self):
-    value = self.current & 0x7F
-    offset = 7
-    while self.current >= 0x80:
-      self._advance()
-      payload = (self.current & 0x7F) + 1
-      value += (payload << offset)
-      offset += 7
-    self._advance()
-    return value
+  def read(self):
+    # Keep running as long as the store-result end is still on the pending end
+    # stack.
+    while len(self._pending_ends) > 1:
+      self._decoder.decode_next(self)
+
+    return self._get_result()
 
 
 def decode(input, factory=None):
   """Decode the given input as plankton data."""
   if isinstance(input, bytearray):
     input = io.BytesIO(input)
-  return Decoder(input, factory).read()
+  return StreamBuilder(input, factory).read()
