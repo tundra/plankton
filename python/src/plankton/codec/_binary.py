@@ -6,6 +6,8 @@ data in the binary format.
 
 import uuid
 
+from plankton.codec import _types
+
 
 __all__ = ["InstructionStreamDecoder", "BinaryEncoder"]
 
@@ -87,6 +89,7 @@ class InstructionStreamDecoder(object):
     self.input = input
     self.current = None
     self.has_more = True
+    self.next_ref_offset = 0
     self._advance()
 
   def _advance(self):
@@ -379,13 +382,15 @@ class InstructionStreamDecoder(object):
   @decoder(ADD_REF_TAG)
   def _add_ref(self, callback):
     self._advance()
-    return callback.on_add_ref()
+    offset = self.next_ref_offset
+    self.next_ref_offset += 1
+    return callback.on_add_ref(offset)
 
   @decoder(GET_REF_TAG)
   def _get_ref(self, callback):
     self._advance()
     offset = self._read_unsigned_int()
-    return callback.on_get_ref(offset)
+    return callback.on_get_ref(self.next_ref_offset - offset - 1)
 
   def _decode_nibbles(self, nibbles):
     value = nibbles[nibble_offset] & 0x7
@@ -447,7 +452,7 @@ class InstructionStreamDecoder(object):
     return result
 
 
-class BinaryEncoder(object):
+class BinaryEncoder(_types.Visitor):
   """
   An abstract value encoder. Most of the work of encoding takes place here, then
   the subclasses tweak various semantics.
@@ -456,6 +461,10 @@ class BinaryEncoder(object):
   def __init__(self, out):
     self._out = out
     self._default_string_encoding = "utf-8"
+    self._ref_count = 0
+
+  def on_invalid_instruction(self, code):
+    raise Exception("Invalid instruction 0x{:x}".format(code))
 
   def on_int(self, value):
     if value == 0:
@@ -621,12 +630,13 @@ class BinaryEncoder(object):
         index += 1
     add_nibble(0)
 
-  def on_get_ref(self, distance):
+  def on_get_ref(self, key):
     self._write_tag(GET_REF_TAG)
-    self._write_unsigned_int(distance)
+    self._write_unsigned_int(self._ref_count - key - 1)
 
-  def on_add_ref(self):
+  def on_add_ref(self, key):
     self._write_tag(ADD_REF_TAG)
+    self._ref_count += 1
 
   def _write_unsigned_int(self, value):
     assert value >= 0
@@ -643,6 +653,3 @@ class BinaryEncoder(object):
 
   def _write_tag(self, byte):
     self._write_byte(byte)
-
-  def on_invalid_value(self, value):
-    raise Exception("Invalid value {}".format(value))

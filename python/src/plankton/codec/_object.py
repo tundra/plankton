@@ -50,14 +50,8 @@ class DefaultDataFactory(object):
     return _types.Struct([])
 
 
-class ObjectBuilder(object):
-  """if sys.version_info < (3,):
-  _INT_TYPES = (int, long)
-  _BASESTRING_TYPE = basestring
-else:
-  _INT_TYPES = (int,)
-  _BASESTRING_TYPE = str
-
+class ObjectBuilder(_types.Visitor):
+  """
   An instruction stream visitor that builds up an object graph based on the
   incoming instructions.
   """
@@ -65,7 +59,7 @@ else:
   def __init__(self, factory=None, default_string_encoding=None):
     self._factory = factory or DefaultDataFactory()
     self._default_string_encoding = default_string_encoding or "utf-8"
-    self._refs = []
+    self._refs = {}
     # The stack of values we've seen so far but haven't packed into a composite
     # value of some sort.
     self._value_stack = []
@@ -183,16 +177,16 @@ else:
       struct.fields.append((tags[i], values[i]))
     self._push(struct)
 
-  def on_add_ref(self):
+  def on_add_ref(self, key):
     assert not self._last_reffable is None
-    self._refs.append(self._last_reffable)
+    assert not key in self._refs
+    self._refs[key] = self._last_reffable
     # Once you've added one ref you can't add any more so clear last_reffable.
     self._last_reffable = None
 
-  def on_get_ref(self, offset):
+  def on_get_ref(self, key):
     self._last_reffable = None
-    index = len(self._refs) - offset - 1
-    self._push(self._refs[index])
+    self._push(self._refs[key])
 
   def _push(self, value):
     """
@@ -275,6 +269,12 @@ class AbstractObjectDecoder(object):
   def __init__(self, visitor, classifier=None):
     self._visitor = visitor
     self._classifier = classifier or DefaultClassifier()
+    self._next_ref_offset = 0
+
+  def _get_ref_offset(self):
+    result = self._next_ref_offset
+    self._next_ref_offset += 1
+    return result
 
   @abstractmethod
   def _preprocess(self, value):
@@ -330,7 +330,7 @@ class AbstractObjectDecoder(object):
         return self._visitor.on_get_ref(ref)
     self._visitor.on_begin_array(len(array))
     if should_add_ref:
-      self._visitor.on_add_ref()
+      self._visitor.on_add_ref(self._get_ref_offset())
     for value in self._traverse_composite(array):
       self._decode(value)
 
@@ -342,7 +342,7 @@ class AbstractObjectDecoder(object):
         return self._visitor.on_get_ref(ref)
     self._visitor.on_begin_map(len(map))
     if should_add_ref:
-      self._visitor.on_add_ref()
+      self._visitor.on_add_ref(self._get_ref_offset())
     for value in self._traverse_composite(map):
       self._decode(value)
 
@@ -354,7 +354,7 @@ class AbstractObjectDecoder(object):
         return self._visitor.on_get_ref(seed)
     self._visitor.on_begin_seed(len(seed.fields))
     if should_add_ref:
-      self._visitor.on_add_ref()
+      self._visitor.on_add_ref(self._get_ref_offset())
     self._decode(seed.header)
     for value in self._traverse_composite(seed):
       self._decode(value)
@@ -367,7 +367,7 @@ class AbstractObjectDecoder(object):
         return self._visitor.on_get_ref(struct)
     self._visitor.on_begin_struct([t for (t, v) in struct.fields])
     if should_add_ref:
-      self._visitor.on_add_ref()
+      self._visitor.on_add_ref(self._get_ref_offset())
     for value in self._traverse_composite(struct):
       self._decode(value)
 
@@ -474,7 +474,7 @@ class ObjectGraphDecoder(AbstractObjectDecoder):
     if offset is None:
       return None
     else:
-      return self._ref_count - offset - 1
+      return offset
 
   def _should_add_ref(self, value):
     value_id = id(value)
