@@ -6,3 +6,8 @@ yield int:2113663
 
 ----- tton -----
 2113663
+
+----- tton -----
+% canonical: false
+
+2_113_663

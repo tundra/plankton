@@ -102,7 +102,7 @@ class Tokenizer(object):
       self._skip_spaces()
 
   def _read_next(self):
-    if self._current.isdigit() or self._current == "-":
+    if self._is_digit_start(self._current):
       return self._read_number()
     elif self._current == "%":
       return self._read_singleton()
@@ -117,10 +117,18 @@ class Tokenizer(object):
 
   def _read_number(self):
     start = self._cursor
-    while self._has_more() and (self._current.isdigit() or self._current == "-"):
+    while self._has_more() and self._is_digit_part(self._current):
       self._advance()
-    result = self._input[start-1:self._cursor-1]
+    result = self._input[start-1:self._cursor-1].replace("_", "")
     return Number(int(result))
+
+  @staticmethod
+  def _is_digit_start(chr):
+    return chr.isdigit() or chr in "-"
+
+  @classmethod
+  def _is_digit_part(cls, chr):
+    return cls._is_digit_start(chr) or chr == "_"
 
   def _read_singleton(self):
     assert self._current == "%"
