@@ -4,5 +4,3 @@ yield seed:0 int:10
 ----- bton -----
 60
   08 0a
-
------ tton -----

@@ -41,6 +41,3 @@ af 87 5f 8b 58 e0 3f ff db 02 52 1e 8b b7 ba e2 e3 97 32 be 38 cf 01 ea bb dd de
 d3 c3 ff af 08 c5 06 2e 6c e0 27 e0 2d 5d a0 49 43 e1 e6 ca 11 35 f9 00 fb b0 6b
 8d 95 6d 6d 9a 71 27 25 fb 28 9b 46 5b 70 64 b2 81 dd 4f c3 5c ed 52 3e cb 9a da
 8e
-
------ tton -----
-%[0a0b0c]

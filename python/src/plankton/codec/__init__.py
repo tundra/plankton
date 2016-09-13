@@ -1,8 +1,9 @@
 import io
 
-from plankton.codec._types import *
 from plankton.codec._binary import *
 from plankton.codec._object import *
+from plankton.codec._text import *
+from plankton.codec._types import *
 
 
 def decode_binary(input, factory=None, default_string_encoding=None):
@@ -10,9 +11,16 @@ def decode_binary(input, factory=None, default_string_encoding=None):
   if isinstance(input, bytearray):
     input = io.BytesIO(input)
   builder = ObjectBuilder(factory, default_string_encoding)
-  decoder = InstructionStreamDecoder(input)
+  decoder = BinaryDecoder(input, builder)
   while not builder.has_result:
-    decoder.decode_next(builder)
+    decoder.decode_next()
+  return builder.result
+
+
+def decode_text(input, factory=None, default_string_encoding=None):
+  builder = ObjectBuilder(factory, default_string_encoding)
+  decoder = TextDecoder(builder)
+  decoder.decode(input)
   return builder.result
 
 

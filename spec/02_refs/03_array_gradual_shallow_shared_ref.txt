@@ -15,6 +15,3 @@ yield array:9 $a $a $b $a $b $c $a $b $c
   a1 02
   a1 01
   a1 00
-
------ tton -----
-[&a:[0], &a, &b:[1], &a, &b, &c:[2], &a, &b, &c]

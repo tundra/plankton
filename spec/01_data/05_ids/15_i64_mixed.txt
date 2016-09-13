@@ -3,6 +3,3 @@ yield id:abcdefabcdefabcd
 
 ----- bton -----
 16 ab cd ef ab cd ef ab cd
-
------ tton -----
-~{abcdefabcdefabcd}

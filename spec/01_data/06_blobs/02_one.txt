@@ -3,6 +3,3 @@ yield blob:ab
 
 ----- bton -----
 48 01 ab
-
------ tton -----
-%[ab]

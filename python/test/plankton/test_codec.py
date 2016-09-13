@@ -271,6 +271,12 @@ class AbstractCodecTest(unittest.TestCase):
     cloned = builder.result
     self.assertStructurallyEqual(self.test_case.data, cloned)
 
+  def test_text_decode(self):
+    data = self.test_case.data
+    for tton in self.test_case.ttons:
+      decoded = plankton.codec.decode_text(tton.source)
+      self.assertStructurallyEqual(data, decoded)
+
   def assertStructurallyEqual(self, a, b):
     """Assertion that fails unless a and b are structurally equal."""
     self.assertTrue(self.is_structurally_equal(a, b, set()))

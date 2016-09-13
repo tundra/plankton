@@ -3,6 +3,3 @@ yield blob:abcdef01
 
 ----- bton -----
 48 04 ab cd ef 01
-
------ tton -----
-%[abcdef01]

@@ -3,6 +3,3 @@ yield id:ffff
 
 ----- bton -----
 14 ff ff
-
------ tton -----
-~{ffff}
