@@ -224,7 +224,7 @@ class TextDecoder(object):
       elif tokens.current.is_singleton():
         self._visitor.on_singleton(tokens.current._value)
       elif tokens.current.is_string():
-        self._visitor.on_string(tokens.current._value, None)
+        self._visitor.on_string(tokens.current._value.encode("utf-8"), None)
       else:
         raise AssertionError()
       tokens._advance()
