@@ -1,192 +1,73 @@
-import collections
-import io
+"""
+Utilities for working with binary plankton: parsing binary input and encoding
+data in the binary format.
+"""
+
+
 import uuid
-import itertools
-
-from plankton.codec import shared
 
 
-__all__ = ["decode", "DefaultDataFactory", "Builder"]
+__all__ = ["InstructionStreamDecoder", "BinaryEncoder"]
 
 
-class DefaultDataFactory(object):
-  """
-  The default data factory that constructs plain, boring, python data for the
-  different composite types.
-  """
+INT_0_TAG = 0x00
+INT_1_TAG = 0x01
+INT_2_TAG = 0x02
+INT_P_TAG = 0x08
+INT_M_TAG = 0x09
+INT_M1_TAG = 0x0f
 
-  def new_array(self):
-    return []
+SINGLETON_NULL_TAG = 0x10
+SINGLETON_TRUE_TAG = 0x11
+SINGLETON_FALSE_TAG = 0x12
 
-  def new_map(self):
-    return collections.OrderedDict()
+ID_16_TAG = 0x14
+ID_32_TAG = 0x15
+ID_64_TAG = 0x16
+ID_128_TAG = 0x17
 
-  def new_id(self, bytes):
-    return uuid.UUID(bytes=bytes)
+ARRAY_0_TAG = 0x20
+ARRAY_1_TAG = 0x21
+ARRAY_2_TAG = 0x22
+ARRAY_3_TAG = 0x23
+ARRAY_N_TAG = 0x28
 
-  def new_seed(self):
-    return shared.Seed(None, collections.OrderedDict())
+MAP_0_TAG = 0x30
+MAP_1_TAG = 0x31
+MAP_2_TAG = 0x32
+MAP_3_TAG = 0x33
+MAP_N_TAG = 0x38
 
-  def new_struct(self):
-    return shared.Struct([])
+BLOB_N_TAG = 0x48
 
+DEFAULT_STRING_0_TAG = 0x50
+DEFAULT_STRING_1_TAG = 0x51
+DEFAULT_STRING_2_TAG = 0x52
+DEFAULT_STRING_3_TAG = 0x53
+DEFAULT_STRING_4_TAG = 0x54
+DEFAULT_STRING_5_TAG = 0x55
+DEFAULT_STRING_6_TAG = 0x56
+DEFAULT_STRING_7_TAG = 0x57
+DEFAULT_STRING_N_TAG = 0x58
 
-class Builder(object):
+SEED_0_TAG = 0x60
+SEED_1_TAG = 0x61
+SEED_2_TAG = 0x62
+SEED_3_TAG = 0x63
+SEED_N_TAG = 0x68
 
-  def __init__(self, factory=None, default_string_encoding="utf-8"):
-    self._factory = factory or DefaultDataFactory()
-    self._default_string_encoding = default_string_encoding
-    self._refs = []
-    # The stack of values we've seen so far but haven't packed into a composite
-    # value of some sort.
-    self._value_stack = []
-    # A stack of info about how to pack values into composites when we've
-    # collected enough values.
-    self._pending_ends = []
-    # The last value we've seen but only if a ref can be created to it, if the
-    # last value was atomic this will be None. Note that since None itself is
-    # atomic there is no ambiguity between "holding no reffable value" and
-    # "holding a reffable value that happens to be None" because None is never
-    # reffable.
-    self._last_reffable = None
-    # The final result of parsing. It's totally valid for this to be None since
-    # that's a valid parsing result.
-    self._result = None
-    self._init()
+ADD_REF_TAG = 0xa0
+GET_REF_TAG = 0xa1
 
-  def _init(self):
-    # Schedule an end that doesn't do anything but that ensures that we don't
-    # have to explicitly check for the bottom of the pending ends.
-    self._schedule_end(2, 1, None, None)
-    # Schedule an end that stores the result in the _result field.
-    self._schedule_end(1, self._store_result, None, None)
-
-  def _get_result(self):
-    # Check that the value and pending end stacks look like we expect at this
-    # point.
-    assert [None] == self._value_stack
-    assert len(self._pending_ends) == 1
-
-    return self._result
-
-  def _store_result(self, total_count, open_result, values, data):
-    [self._result] = values
-    self._push(None)
-
-  def on_invalid_instruction(self, code):
-    raise Exception("Invalid instruction 0x{:x}".format(code))
-
-  def on_int(self, value):
-    self._last_reffable = None
-    self._push(value)
-
-  def on_singleton(self, value):
-    self._last_reffable = None
-    self._push(value)
-
-  def on_id(self, data):
-    self._last_reffable = None
-    self._push(self._factory.new_id(data))
-
-  def on_begin_array(self, length):
-    array = self._last_reffable = self._factory.new_array()
-    if length == 0:
-      self._push(array)
-    else:
-      self._schedule_end(length, self._end_array, array, None)
-
-  def _end_array(self, total_length, array, values, unused):
-    array[:] = values
-    self._push(array)
-
-  def on_begin_map(self, length):
-    map = self._last_reffable = self._factory.new_map()
-    if length == 0:
-      self._push(map)
-    else:
-      self._schedule_end(2 * length, self._end_map, map, None)
-
-  def _end_map(self, total_length, map, values, unused):
-    for i in range(0, total_length, 2):
-      map[values[i]] = values[i+1]
-    self._push(map)
-
-  def on_blob(self, data):
-    self._last_reffable = None
-    self._push(data)
-
-  def on_string(self, data, encoding):
-    if not encoding:
-      encoding = self._default_string_encoding
-    self._push(data.decode(encoding))
-
-  def on_begin_seed(self, field_count):
-    seed = self._last_reffable = self._factory.new_seed()
-    self._schedule_end(1, self._end_seed_header, seed, field_count)
-
-  def _end_seed_header(self, one, seed, header_values, field_count):
-    [header] = header_values
-    seed.header = header
-    if field_count == 0:
-      self._push(seed)
-    else:
-      self._schedule_end(2 * field_count, self._end_seed, seed, None)
-
-  def _end_seed(self, total_count, seed, field_values, unused):
-    for i in range(0, total_count, 2):
-      seed.fields[field_values[i]] = field_values[i+1]
-    self._push(seed)
-
-  def on_begin_struct(self, tags):
-    struct = self._last_reffable = self._factory.new_struct()
-    tag_count = len(tags)
-    if tag_count == 0:
-      self._push(struct)
-    else:
-      self._schedule_end(tag_count, self._end_struct, struct, tags)
-
-  def _end_struct(self, total_length, struct, values, tags):
-    for i in range(0, len(tags)):
-      struct.fields.append((tags[i], values[i]))
-    self._push(struct)
-
-  def on_add_ref(self):
-    assert not self._last_reffable is None
-    self._refs.append(self._last_reffable)
-    # Once you've added one ref you can't add any more so clear last_reffable.
-    self._last_reffable = None
-
-  def on_get_ref(self, offset):
-    self._last_reffable = None
-    index = len(self._refs) - offset - 1
-    self._push(self._refs[index])
-
-  def _push(self, value):
-    """
-    Push a value on top of the value stack and execute any pending ends that
-    are now ready to be executed.
-    """
-    self._value_stack.append(value)
-    self._pending_ends[-1][1] += 1
-    if self._pending_ends[-1][0] == self._pending_ends[-1][1]:
-      [total_count, added_count, callback, open_result, data] = self._pending_ends.pop()
-      values = self._value_stack[-total_count:]
-      del self._value_stack[-total_count:]
-      # The callback may or may not push a value which will cause this to be
-      # called again and then we'll deal with any pending ends further down
-      # the pending end stack.
-      callback(total_count, open_result, values, data)
-
-  def _schedule_end(self, total_count, callback, open_result, data):
-    """
-    Schedule the given callback to be called after total_count values have
-    become available. The count has to be > 0 because that simplifies things
-    and also, if the number of remaining values is 0 the caller can just
-    create the result immediately.
-    """
-    assert total_count > 0
-    assert callback
-    self._pending_ends.append([total_count, 0, callback, open_result, data])
+STRUCT_LINEAR_0_TAG = 0x80
+STRUCT_LINEAR_1_TAG = 0x81
+STRUCT_LINEAR_2_TAG = 0x82
+STRUCT_LINEAR_3_TAG = 0x83
+STRUCT_LINEAR_4_TAG = 0x84
+STRUCT_LINEAR_5_TAG = 0x85
+STRUCT_LINEAR_6_TAG = 0x86
+STRUCT_LINEAR_7_TAG = 0x87
+STRUCT_N_TAG = 0x88
 
 
 _INSTRUCTION_DECODERS = [None] * 256
@@ -251,256 +132,256 @@ class InstructionStreamDecoder(object):
     else:
       return callback.on_invalid_instruction(self.current)
 
-  @decoder(shared.INT_P_TAG)
+  @decoder(INT_P_TAG)
   def _int_p(self, callback):
     self._advance()
     return callback.on_int(self._read_unsigned_int())
 
-  @decoder(shared.INT_M1_TAG)
+  @decoder(INT_M1_TAG)
   def _int_m1(self, callback):
     self._advance()
     return callback.on_int(-1)
 
-  @decoder(shared.INT_0_TAG)
+  @decoder(INT_0_TAG)
   def _int_0(self, callback):
     self._advance()
     return callback.on_int(0)
 
-  @decoder(shared.INT_1_TAG)
+  @decoder(INT_1_TAG)
   def _int_1(self, callback):
     self._advance()
     return callback.on_int(1)
 
-  @decoder(shared.INT_2_TAG)
+  @decoder(INT_2_TAG)
   def _int_2(self, callback):
     self._advance()
     return callback.on_int(2)
 
-  @decoder(shared.INT_M_TAG)
+  @decoder(INT_M_TAG)
   def _int_m(self, callback):
     self._advance()
     return callback.on_int(-(self._read_unsigned_int() + 1))
 
-  @decoder(shared.SINGLETON_NULL_TAG)
+  @decoder(SINGLETON_NULL_TAG)
   def _singleton_null(self, callback):
     self._advance()
     return callback.on_singleton(None)
 
-  @decoder(shared.SINGLETON_TRUE_TAG)
+  @decoder(SINGLETON_TRUE_TAG)
   def _singleton_true(self, callback):
     self._advance()
     return callback.on_singleton(True)
 
-  @decoder(shared.SINGLETON_FALSE_TAG)
+  @decoder(SINGLETON_FALSE_TAG)
   def _singleton_null(self, callback):
     self._advance()
     return callback.on_singleton(False)
 
-  @decoder(shared.ID_16_TAG)
+  @decoder(ID_16_TAG)
   def _id_16(self, callback):
     data = self._advance_and_read_block(2)
     return callback.on_id(b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0" + data)
 
-  @decoder(shared.ID_32_TAG)
+  @decoder(ID_32_TAG)
   def _id_32(self, callback):
     data = self._advance_and_read_block(4)
     return callback.on_id(b"\0\0\0\0\0\0\0\0\0\0\0\0" + data)
 
-  @decoder(shared.ID_64_TAG)
+  @decoder(ID_64_TAG)
   def _id_64(self, callback):
     data = self._advance_and_read_block(8)
     return callback.on_id(b"\0\0\0\0\0\0\0\0" + data)
 
-  @decoder(shared.ID_128_TAG)
+  @decoder(ID_128_TAG)
   def _id_128(self, callback):
     data = self._advance_and_read_block(16)
     return callback.on_id(data)
 
-  @decoder(shared.ARRAY_0_TAG)
+  @decoder(ARRAY_0_TAG)
   def _array_0(self, callback):
     self._advance()
     return callback.on_begin_array(0)
 
-  @decoder(shared.ARRAY_1_TAG)
+  @decoder(ARRAY_1_TAG)
   def _array_1(self, callback):
     self._advance()
     return callback.on_begin_array(1)
 
-  @decoder(shared.ARRAY_2_TAG)
+  @decoder(ARRAY_2_TAG)
   def _array_2(self, callback):
     self._advance()
     return callback.on_begin_array(2)
 
-  @decoder(shared.ARRAY_3_TAG)
+  @decoder(ARRAY_3_TAG)
   def _array_3(self, callback):
     self._advance()
     return callback.on_begin_array(3)
 
-  @decoder(shared.ARRAY_N_TAG)
+  @decoder(ARRAY_N_TAG)
   def _array_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     return callback.on_begin_array(length)
 
-  @decoder(shared.MAP_0_TAG)
+  @decoder(MAP_0_TAG)
   def _map_0(self, callback):
     self._advance()
     return callback.on_begin_map(0)
 
-  @decoder(shared.MAP_1_TAG)
+  @decoder(MAP_1_TAG)
   def _map_1(self, callback):
     self._advance()
     return callback.on_begin_map(1)
 
-  @decoder(shared.MAP_2_TAG)
+  @decoder(MAP_2_TAG)
   def _map_2(self, callback):
     self._advance()
     return callback.on_begin_map(2)
 
-  @decoder(shared.MAP_3_TAG)
+  @decoder(MAP_3_TAG)
   def _map_3(self, callback):
     self._advance()
     return callback.on_begin_map(3)
 
-  @decoder(shared.MAP_N_TAG)
+  @decoder(MAP_N_TAG)
   def _map_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     return callback.on_begin_map(length)
 
-  @decoder(shared.BLOB_N_TAG)
+  @decoder(BLOB_N_TAG)
   def _blob_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     data = self._read_block(length)
     return callback.on_blob(data)
 
-  @decoder(shared.DEFAULT_STRING_0_TAG)
+  @decoder(DEFAULT_STRING_0_TAG)
   def _default_string_0(self, callback):
     self._advance()
     return callback.on_string(b"", None)
 
-  @decoder(shared.DEFAULT_STRING_1_TAG)
+  @decoder(DEFAULT_STRING_1_TAG)
   def _default_string_1(self, callback):
     bytes = self._advance_and_read_block(1)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.DEFAULT_STRING_2_TAG)
+  @decoder(DEFAULT_STRING_2_TAG)
   def _default_string_2(self, callback):
     bytes = self._advance_and_read_block(2)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.DEFAULT_STRING_3_TAG)
+  @decoder(DEFAULT_STRING_3_TAG)
   def _default_string_3(self, callback):
     bytes = self._advance_and_read_block(3)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.DEFAULT_STRING_4_TAG)
+  @decoder(DEFAULT_STRING_4_TAG)
   def _default_string_4(self, callback):
     bytes = self._advance_and_read_block(4)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.DEFAULT_STRING_5_TAG)
+  @decoder(DEFAULT_STRING_5_TAG)
   def _default_string_5(self, callback):
     bytes = self._advance_and_read_block(5)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.DEFAULT_STRING_6_TAG)
+  @decoder(DEFAULT_STRING_6_TAG)
   def _default_string_6(self, callback):
     bytes = self._advance_and_read_block(6)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.DEFAULT_STRING_7_TAG)
+  @decoder(DEFAULT_STRING_7_TAG)
   def _default_string_7(self, callback):
     bytes = self._advance_and_read_block(7)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.DEFAULT_STRING_N_TAG)
+  @decoder(DEFAULT_STRING_N_TAG)
   def _default_string_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     bytes = self._read_block(length)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.SEED_0_TAG)
+  @decoder(SEED_0_TAG)
   def _seed_0(self, callback):
     self._advance()
     return callback.on_begin_seed(0)
 
-  @decoder(shared.SEED_1_TAG)
+  @decoder(SEED_1_TAG)
   def _seed_1(self, callback):
     self._advance()
     return callback.on_begin_seed(1)
 
-  @decoder(shared.SEED_2_TAG)
+  @decoder(SEED_2_TAG)
   def _seed_2(self, callback):
     self._advance()
     return callback.on_begin_seed(2)
 
-  @decoder(shared.SEED_3_TAG)
+  @decoder(SEED_3_TAG)
   def _seed_3(self, callback):
     self._advance()
     return callback.on_begin_seed(3)
 
-  @decoder(shared.SEED_N_TAG)
+  @decoder(SEED_N_TAG)
   def _seed_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     return callback.on_begin_seed(length)
 
-  @decoder(shared.STRUCT_LINEAR_0_TAG)
+  @decoder(STRUCT_LINEAR_0_TAG)
   def _struct_linear_0(self, callback):
     self._advance()
     return callback.on_begin_struct([])
 
-  @decoder(shared.STRUCT_LINEAR_1_TAG)
+  @decoder(STRUCT_LINEAR_1_TAG)
   def _struct_linear_1(self, callback):
     self._advance()
     return callback.on_begin_struct([0])
 
-  @decoder(shared.STRUCT_LINEAR_2_TAG)
+  @decoder(STRUCT_LINEAR_2_TAG)
   def _struct_linear_2(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1])
 
-  @decoder(shared.STRUCT_LINEAR_3_TAG)
+  @decoder(STRUCT_LINEAR_3_TAG)
   def _struct_linear_3(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1, 2])
 
-  @decoder(shared.STRUCT_LINEAR_4_TAG)
+  @decoder(STRUCT_LINEAR_4_TAG)
   def _struct_linear_4(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1, 2, 3])
 
-  @decoder(shared.STRUCT_LINEAR_5_TAG)
+  @decoder(STRUCT_LINEAR_5_TAG)
   def _struct_linear_5(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1, 2, 3, 4])
 
-  @decoder(shared.STRUCT_LINEAR_6_TAG)
+  @decoder(STRUCT_LINEAR_6_TAG)
   def _struct_linear_6(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1, 2, 3, 4, 5])
 
-  @decoder(shared.STRUCT_LINEAR_7_TAG)
+  @decoder(STRUCT_LINEAR_7_TAG)
   def _struct_linear_7(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1, 2, 3, 4, 5, 6])
 
-  @decoder(shared.STRUCT_N_TAG)
+  @decoder(STRUCT_N_TAG)
   def _struct_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     tags = self._read_struct_tags(length)
     return callback.on_begin_struct(tags)
 
-  @decoder(shared.ADD_REF_TAG)
+  @decoder(ADD_REF_TAG)
   def _add_ref(self, callback):
     self._advance()
     return callback.on_add_ref()
 
-  @decoder(shared.GET_REF_TAG)
+  @decoder(GET_REF_TAG)
   def _get_ref(self, callback):
     self._advance()
     offset = self._read_unsigned_int()
@@ -566,23 +447,202 @@ class InstructionStreamDecoder(object):
     return result
 
 
-class StreamBuilder(Builder):
+class BinaryEncoder(object):
+  """
+  An abstract value encoder. Most of the work of encoding takes place here, then
+  the subclasses tweak various semantics.
+  """
 
-  def __init__(self, input, factory=None, default_string_encoding="utf-8"):
-    super(StreamBuilder, self).__init__(factory, default_string_encoding)
-    self._decoder = InstructionStreamDecoder(input)
+  def __init__(self, out):
+    self._out = out
+    self._default_string_encoding = "utf-8"
 
-  def read(self):
-    # Keep running as long as the store-result end is still on the pending end
-    # stack.
-    while len(self._pending_ends) > 1:
-      self._decoder.decode_next(self)
+  def on_int(self, value):
+    if value == 0:
+      self._write_tag(INT_0_TAG)
+    elif value == 1:
+      self._write_tag(INT_1_TAG)
+    elif value == 2:
+      self._write_tag(INT_2_TAG)
+    elif value == -1:
+      self._write_tag(INT_M1_TAG)
+    elif value < 0:
+      self._write_tag(INT_M_TAG)
+      self._write_unsigned_int(-(value+1))
+    else:
+      self._write_tag(INT_P_TAG)
+      self._write_unsigned_int(value)
 
-    return self._get_result()
+  def on_singleton(self, value):
+    if value is None:
+      self._write_tag(SINGLETON_NULL_TAG)
+    elif value is True:
+      self._write_tag(SINGLETON_TRUE_TAG)
+    else:
+      assert value is False
+      self._write_tag(SINGLETON_FALSE_TAG)
 
+  def on_string(self, bytes, encoding):
+    if len(bytes) == 0:
+      self._write_tag(DEFAULT_STRING_0_TAG)
+    elif len(bytes) == 1:
+      self._write_tag(DEFAULT_STRING_1_TAG)
+    elif len(bytes) == 2:
+      self._write_tag(DEFAULT_STRING_2_TAG)
+    elif len(bytes) == 3:
+      self._write_tag(DEFAULT_STRING_3_TAG)
+    elif len(bytes) == 4:
+      self._write_tag(DEFAULT_STRING_4_TAG)
+    elif len(bytes) == 5:
+      self._write_tag(DEFAULT_STRING_5_TAG)
+    elif len(bytes) == 6:
+      self._write_tag(DEFAULT_STRING_6_TAG)
+    elif len(bytes) == 7:
+      self._write_tag(DEFAULT_STRING_7_TAG)
+    else:
+      self._write_tag(DEFAULT_STRING_N_TAG)
+      self._write_unsigned_int(len(bytes))
+    self._write_bytes(bytes)
 
-def decode(input, factory=None):
-  """Decode the given input as plankton data."""
-  if isinstance(input, bytearray):
-    input = io.BytesIO(input)
-  return StreamBuilder(input, factory).read()
+  def on_begin_array(self, length):
+    if length == 0:
+      self._write_tag(ARRAY_0_TAG)
+    elif length == 1:
+      self._write_tag(ARRAY_1_TAG)
+    elif length == 2:
+      self._write_tag(ARRAY_2_TAG)
+    elif length == 3:
+      self._write_tag(ARRAY_3_TAG)
+    else:
+      self._write_tag(ARRAY_N_TAG)
+      self._write_unsigned_int(length)
+
+  def on_begin_map(self, length):
+    if length == 0:
+      self._write_tag(MAP_0_TAG)
+    elif length == 1:
+      self._write_tag(MAP_1_TAG)
+    elif length == 2:
+      self._write_tag(MAP_2_TAG)
+    elif length == 3:
+      self._write_tag(MAP_3_TAG)
+    else:
+      self._write_tag(MAP_N_TAG)
+      self._write_unsigned_int(length)
+
+  def on_id(self, bytes):
+    ivalue = uuid.UUID(bytes=bytes).int
+    if ivalue >= 2**64:
+      self._write_tag(ID_128_TAG)
+      self._write_bytes(bytes)
+    elif ivalue >= 2**32:
+      self._write_tag(ID_64_TAG)
+      self._write_bytes(bytes[8:16])
+    elif ivalue >= 2**16:
+      self._write_tag(ID_32_TAG)
+      self._write_bytes(bytes[12:16])
+    else:
+      assert ivalue < 2**16
+      self._write_tag(ID_16_TAG)
+      self._write_bytes(bytes[14:16])
+
+  def on_blob(self, value):
+    self._write_tag(BLOB_N_TAG)
+    self._write_unsigned_int(len(value))
+    self._write_bytes(value)
+
+  def on_begin_seed(self, length):
+    if length == 0:
+      self._write_tag(SEED_0_TAG)
+    elif length == 1:
+      self._write_tag(SEED_1_TAG)
+    elif length == 2:
+      self._write_tag(SEED_2_TAG)
+    elif length == 3:
+      self._write_tag(SEED_3_TAG)
+    else:
+      self._write_tag(SEED_N_TAG)
+      self._write_unsigned_int(length)
+
+  def on_begin_struct(self, tags):
+    if tags == []:
+      self._write_tag(STRUCT_LINEAR_0_TAG)
+    elif tags == [0]:
+      self._write_tag(STRUCT_LINEAR_1_TAG)
+    elif tags == [0, 1]:
+      self._write_tag(STRUCT_LINEAR_2_TAG)
+    elif tags == [0, 1, 2]:
+      self._write_tag(STRUCT_LINEAR_3_TAG)
+    elif tags == [0, 1, 2, 3]:
+      self._write_tag(STRUCT_LINEAR_4_TAG)
+    elif tags == [0, 1, 2, 3, 4]:
+      self._write_tag(STRUCT_LINEAR_5_TAG)
+    elif tags == [0, 1, 2, 3, 4, 5]:
+      self._write_tag(STRUCT_LINEAR_6_TAG)
+    elif tags == [0, 1, 2, 3, 4, 5, 6]:
+      self._write_tag(STRUCT_LINEAR_7_TAG)
+    else:
+      self._write_tag(STRUCT_N_TAG)
+      self._write_unsigned_int(len(tags))
+      self._write_struct_tags(tags)
+
+  def _write_struct_tags(self, tags):
+    if len(tags) == 0:
+      return
+    top_nibble = [None]
+    def add_nibble(nibble):
+      if top_nibble[0] is None:
+        top_nibble[0] = nibble
+      else:
+        byte = (top_nibble[0] << 4) | nibble
+        self._write_byte(byte)
+        top_nibble[0] = None
+    def add_value(value):
+      while value >= 0x8:
+        add_nibble((value & 0x7) | 0x8)
+        value = (value >> 3) - 1
+      add_nibble(value)
+    last_value = tags[0]
+    add_value(last_value)
+    index = 1
+    while index < len(tags):
+      tag = tags[index]
+      if tag == last_value:
+        end_index = index + 1
+        while end_index < len(tags) and tags[end_index] == last_value:
+          end_index += 1
+        add_value(0)
+        add_value(end_index - index)
+        index = end_index
+      else:
+        delta = tag - last_value
+        add_value(delta)
+        last_value = tag
+        index += 1
+    add_nibble(0)
+
+  def on_get_ref(self, distance):
+    self._write_tag(GET_REF_TAG)
+    self._write_unsigned_int(distance)
+
+  def on_add_ref(self):
+    self._write_tag(ADD_REF_TAG)
+
+  def _write_unsigned_int(self, value):
+    assert value >= 0
+    while value >= 0x80:
+      self._write_byte((value & 0x7F) | 0x80)
+      value = (value >> 7) - 1
+    self._write_byte(value)
+
+  def _write_bytes(self, data):
+    self._out.write(data)
+
+  def _write_byte(self, byte):
+    self._out.write(bytearray([byte]))
+
+  def _write_tag(self, byte):
+    self._write_byte(byte)
+
+  def on_invalid_value(self, value):
+    raise Exception("Invalid value {}".format(value))

@@ -1,20 +1,23 @@
+"""
+Utilities for working with object structures: building them based on encoded
+input and traversing them.
+"""
+
+
 from abc import abstractmethod, ABCMeta
-import io
+import collections
 import sys
 import uuid
 
-from plankton.codec import shared
+from plankton.codec import _types
 
 
-__all__ = ["encode", "Encoder"]
-
-
-class EncodeError(Exception):
-  pass
-
-
-class SharedStructureDetected(Exception):
-  pass
+__all__ = [
+  "ObjectBuilder",
+  "ObjectGraphDecoder",
+  "ObjectTreeDecoder",
+  "SharedStructureDetected",
+]
 
 
 if sys.version_info < (3,):
@@ -25,209 +28,208 @@ else:
   _BASESTRING_TYPE = str
 
 
-class Encoder(object):
+class DefaultDataFactory(object):
   """
-  An abstract value encoder. Most of the work of encoding takes place here, then
-  the subclasses tweak various semantics.
+  The default data factory that constructs plain, boring, python data for the
+  different composite types.
   """
-  __metaclass__ = ABCMeta
 
-  def __init__(self, out):
-    self._out = out
-    self._default_string_encoding = "utf-8"
+  def new_array(self):
+    return []
+
+  def new_map(self):
+    return collections.OrderedDict()
+
+  def new_id(self, bytes):
+    return uuid.UUID(bytes=bytes)
+
+  def new_seed(self):
+    return _types.Seed(None, collections.OrderedDict())
+
+  def new_struct(self):
+    return _types.Struct([])
+
+
+class ObjectBuilder(object):
+  """
+  An instruction stream visitor that builds up an object graph based on the
+  incoming instructions.
+  """
+
+  def __init__(self, factory=None, default_string_encoding=None):
+    self._factory = factory or DefaultDataFactory()
+    self._default_string_encoding = default_string_encoding or "utf-8"
+    self._refs = []
+    # The stack of values we've seen so far but haven't packed into a composite
+    # value of some sort.
+    self._value_stack = []
+    # A stack of info about how to pack values into composites when we've
+    # collected enough values.
+    self._pending_ends = []
+    # The last value we've seen but only if a ref can be created to it, if the
+    # last value was atomic this will be None. Note that since None itself is
+    # atomic there is no ambiguity between "holding no reffable value" and
+    # "holding a reffable value that happens to be None" because None is never
+    # reffable.
+    self._last_reffable = None
+    # The final result of parsing. It's totally valid for this to be None since
+    # that's a valid parsing result.
+    self._result = None
+    self._init()
+
+  def _init(self):
+    # Schedule an end that doesn't do anything but that ensures that we don't
+    # have to explicitly check for the bottom of the pending ends.
+    self._schedule_end(2, 1, None, None)
+    # Schedule an end that stores the result in the _result field.
+    self._schedule_end(1, self._store_result, None, None)
+
+  @property
+  def has_result(self):
+    """Has this builder completed building the object graph?"""
+    return len(self._pending_ends) == 1
+
+  @property
+  def result(self):
+    """If this builder has completed the object graph, yields the value."""
+    assert self.has_result
+    assert [None] == self._value_stack
+    return self._result
+
+  def _store_result(self, total_count, open_result, values, data):
+    [self._result] = values
+    self._push(None)
+
+  def on_invalid_instruction(self, code):
+    raise Exception("Invalid instruction 0x{:x}".format(code))
 
   def on_int(self, value):
-    if value == 0:
-      self._write_tag(shared.INT_0_TAG)
-    elif value == 1:
-      self._write_tag(shared.INT_1_TAG)
-    elif value == 2:
-      self._write_tag(shared.INT_2_TAG)
-    elif value == -1:
-      self._write_tag(shared.INT_M1_TAG)
-    elif value < 0:
-      self._write_tag(shared.INT_M_TAG)
-      self._write_unsigned_int(-(value+1))
-    else:
-      self._write_tag(shared.INT_P_TAG)
-      self._write_unsigned_int(value)
+    self._last_reffable = None
+    self._push(value)
 
   def on_singleton(self, value):
-    if value is None:
-      self._write_tag(shared.SINGLETON_NULL_TAG)
-    elif value is True:
-      self._write_tag(shared.SINGLETON_TRUE_TAG)
-    else:
-      assert value is False
-      self._write_tag(shared.SINGLETON_FALSE_TAG)
+    self._last_reffable = None
+    self._push(value)
 
-  def on_string(self, bytes, encoding):
-    if len(bytes) == 0:
-      self._write_tag(shared.DEFAULT_STRING_0_TAG)
-    elif len(bytes) == 1:
-      self._write_tag(shared.DEFAULT_STRING_1_TAG)
-    elif len(bytes) == 2:
-      self._write_tag(shared.DEFAULT_STRING_2_TAG)
-    elif len(bytes) == 3:
-      self._write_tag(shared.DEFAULT_STRING_3_TAG)
-    elif len(bytes) == 4:
-      self._write_tag(shared.DEFAULT_STRING_4_TAG)
-    elif len(bytes) == 5:
-      self._write_tag(shared.DEFAULT_STRING_5_TAG)
-    elif len(bytes) == 6:
-      self._write_tag(shared.DEFAULT_STRING_6_TAG)
-    elif len(bytes) == 7:
-      self._write_tag(shared.DEFAULT_STRING_7_TAG)
-    else:
-      self._write_tag(shared.DEFAULT_STRING_N_TAG)
-      self._write_unsigned_int(len(bytes))
-    self._write_bytes(bytes)
+  def on_id(self, data):
+    self._last_reffable = None
+    self._push(self._factory.new_id(data))
 
   def on_begin_array(self, length):
+    array = self._last_reffable = self._factory.new_array()
     if length == 0:
-      self._write_tag(shared.ARRAY_0_TAG)
-    elif length == 1:
-      self._write_tag(shared.ARRAY_1_TAG)
-    elif length == 2:
-      self._write_tag(shared.ARRAY_2_TAG)
-    elif length == 3:
-      self._write_tag(shared.ARRAY_3_TAG)
+      self._push(array)
     else:
-      self._write_tag(shared.ARRAY_N_TAG)
-      self._write_unsigned_int(length)
+      self._schedule_end(length, self._end_array, array, None)
+
+  def _end_array(self, total_length, array, values, unused):
+    array[:] = values
+    self._push(array)
 
   def on_begin_map(self, length):
+    map = self._last_reffable = self._factory.new_map()
     if length == 0:
-      self._write_tag(shared.MAP_0_TAG)
-    elif length == 1:
-      self._write_tag(shared.MAP_1_TAG)
-    elif length == 2:
-      self._write_tag(shared.MAP_2_TAG)
-    elif length == 3:
-      self._write_tag(shared.MAP_3_TAG)
+      self._push(map)
     else:
-      self._write_tag(shared.MAP_N_TAG)
-      self._write_unsigned_int(length)
+      self._schedule_end(2 * length, self._end_map, map, None)
 
-  def on_id(self, bytes):
-    ivalue = uuid.UUID(bytes=bytes).int
-    if ivalue >= 2**64:
-      self._write_tag(shared.ID_128_TAG)
-      self._write_bytes(bytes)
-    elif ivalue >= 2**32:
-      self._write_tag(shared.ID_64_TAG)
-      self._write_bytes(bytes[8:16])
-    elif ivalue >= 2**16:
-      self._write_tag(shared.ID_32_TAG)
-      self._write_bytes(bytes[12:16])
+  def _end_map(self, total_length, map, values, unused):
+    for i in range(0, total_length, 2):
+      map[values[i]] = values[i+1]
+    self._push(map)
+
+  def on_blob(self, data):
+    self._last_reffable = None
+    self._push(data)
+
+  def on_string(self, data, encoding):
+    if not encoding:
+      encoding = self._default_string_encoding
+    self._push(data.decode(encoding))
+
+  def on_begin_seed(self, field_count):
+    seed = self._last_reffable = self._factory.new_seed()
+    self._schedule_end(1, self._end_seed_header, seed, field_count)
+
+  def _end_seed_header(self, one, seed, header_values, field_count):
+    [header] = header_values
+    seed.header = header
+    if field_count == 0:
+      self._push(seed)
     else:
-      assert ivalue < 2**16
-      self._write_tag(shared.ID_16_TAG)
-      self._write_bytes(bytes[14:16])
+      self._schedule_end(2 * field_count, self._end_seed, seed, None)
 
-  def on_blob(self, value):
-    self._write_tag(shared.BLOB_N_TAG)
-    self._write_unsigned_int(len(value))
-    self._write_bytes(value)
-
-  def on_begin_seed(self, length):
-    if length == 0:
-      self._write_tag(shared.SEED_0_TAG)
-    elif length == 1:
-      self._write_tag(shared.SEED_1_TAG)
-    elif length == 2:
-      self._write_tag(shared.SEED_2_TAG)
-    elif length == 3:
-      self._write_tag(shared.SEED_3_TAG)
-    else:
-      self._write_tag(shared.SEED_N_TAG)
-      self._write_unsigned_int(length)
+  def _end_seed(self, total_count, seed, field_values, unused):
+    for i in range(0, total_count, 2):
+      seed.fields[field_values[i]] = field_values[i+1]
+    self._push(seed)
 
   def on_begin_struct(self, tags):
-    if tags == []:
-      self._write_tag(shared.STRUCT_LINEAR_0_TAG)
-    elif tags == [0]:
-      self._write_tag(shared.STRUCT_LINEAR_1_TAG)
-    elif tags == [0, 1]:
-      self._write_tag(shared.STRUCT_LINEAR_2_TAG)
-    elif tags == [0, 1, 2]:
-      self._write_tag(shared.STRUCT_LINEAR_3_TAG)
-    elif tags == [0, 1, 2, 3]:
-      self._write_tag(shared.STRUCT_LINEAR_4_TAG)
-    elif tags == [0, 1, 2, 3, 4]:
-      self._write_tag(shared.STRUCT_LINEAR_5_TAG)
-    elif tags == [0, 1, 2, 3, 4, 5]:
-      self._write_tag(shared.STRUCT_LINEAR_6_TAG)
-    elif tags == [0, 1, 2, 3, 4, 5, 6]:
-      self._write_tag(shared.STRUCT_LINEAR_7_TAG)
+    struct = self._last_reffable = self._factory.new_struct()
+    tag_count = len(tags)
+    if tag_count == 0:
+      self._push(struct)
     else:
-      self._write_tag(shared.STRUCT_N_TAG)
-      self._write_unsigned_int(len(tags))
-      self._write_struct_tags(tags)
+      self._schedule_end(tag_count, self._end_struct, struct, tags)
 
-  def _write_struct_tags(self, tags):
-    if len(tags) == 0:
-      return
-    top_nibble = [None]
-    def add_nibble(nibble):
-      if top_nibble[0] is None:
-        top_nibble[0] = nibble
-      else:
-        byte = (top_nibble[0] << 4) | nibble
-        self._write_byte(byte)
-        top_nibble[0] = None
-    def add_value(value):
-      while value >= 0x8:
-        add_nibble((value & 0x7) | 0x8)
-        value = (value >> 3) - 1
-      add_nibble(value)
-    last_value = tags[0]
-    add_value(last_value)
-    index = 1
-    while index < len(tags):
-      tag = tags[index]
-      if tag == last_value:
-        end_index = index + 1
-        while end_index < len(tags) and tags[end_index] == last_value:
-          end_index += 1
-        add_value(0)
-        add_value(end_index - index)
-        index = end_index
-      else:
-        delta = tag - last_value
-        add_value(delta)
-        last_value = tag
-        index += 1
-    add_nibble(0)
-
-  def on_get_ref(self, distance):
-    self._write_tag(shared.GET_REF_TAG)
-    self._write_unsigned_int(distance)
+  def _end_struct(self, total_length, struct, values, tags):
+    for i in range(0, len(tags)):
+      struct.fields.append((tags[i], values[i]))
+    self._push(struct)
 
   def on_add_ref(self):
-    self._write_tag(shared.ADD_REF_TAG)
+    assert not self._last_reffable is None
+    self._refs.append(self._last_reffable)
+    # Once you've added one ref you can't add any more so clear last_reffable.
+    self._last_reffable = None
 
-  def _write_unsigned_int(self, value):
-    assert value >= 0
-    while value >= 0x80:
-      self._write_byte((value & 0x7F) | 0x80)
-      value = (value >> 7) - 1
-    self._write_byte(value)
+  def on_get_ref(self, offset):
+    self._last_reffable = None
+    index = len(self._refs) - offset - 1
+    self._push(self._refs[index])
 
-  def _write_bytes(self, data):
-    self._out.write(data)
+  def _push(self, value):
+    """
+    Push a value on top of the value stack and execute any pending ends that
+    are now ready to be executed.
+    """
+    self._value_stack.append(value)
+    self._pending_ends[-1][1] += 1
+    if self._pending_ends[-1][0] == self._pending_ends[-1][1]:
+      [total_count, added_count, callback, open_result, data] = self._pending_ends.pop()
+      values = self._value_stack[-total_count:]
+      del self._value_stack[-total_count:]
+      # The callback may or may not push a value which will cause this to be
+      # called again and then we'll deal with any pending ends further down
+      # the pending end stack.
+      callback(total_count, open_result, values, data)
 
-  def _write_byte(self, byte):
-    self._out.write(bytearray([byte]))
+  def _schedule_end(self, total_count, callback, open_result, data):
+    """
+    Schedule the given callback to be called after total_count values have
+    become available. The count has to be > 0 because that simplifies things
+    and also, if the number of remaining values is 0 the caller can just
+    create the result immediately.
+    """
+    assert total_count > 0
+    assert callback
+    self._pending_ends.append([total_count, 0, callback, open_result, data])
 
-  def _write_tag(self, byte):
-    self._write_byte(byte)
 
-  def on_invalid_value(self, value):
-    raise Exception("Invalid value {}".format(value))
+class SharedStructureDetected(Exception):
+  """
+  Indicated that while traversing an object graph we assumed was tree-shaped we
+  came across some shared structure.
+  """
+  pass
 
 
-class ObjectGraphDecoder(object):
+class AbstractObjectDecoder(object):
+  """
+  An object decoder that leaves the handling of object references up to
+  subclasses but otherwise handles everything else.
+  """
+  __metaclass__ = ABCMeta
 
   def __init__(self, visitor):
     self._visitor = visitor
@@ -340,12 +342,12 @@ class ObjectGraphDecoder(object):
   @staticmethod
   def _is_struct(value):
     """Is the given value one we'll consider a struct?"""
-    return isinstance(value, shared.Struct)
+    return isinstance(value, _types.Struct)
 
   @staticmethod
   def _is_seed(value):
     """Is the given value one we'll consider a seed?"""
-    return isinstance(value, shared.Seed)
+    return isinstance(value, _types.Seed)
 
   @classmethod
   def _is_composite(cls, value):
@@ -379,7 +381,7 @@ class ObjectGraphDecoder(object):
         yield v
 
 
-class ObjectTreeDecoder(ObjectGraphDecoder):
+class ObjectTreeDecoder(AbstractObjectDecoder):
   """
   An encoder that assumes that the input is strictly tree shaped (that is, there
   are no cycles or shared substructures) and throws an exception if that
@@ -410,14 +412,15 @@ class ObjectTreeDecoder(ObjectGraphDecoder):
     return False
 
 
-class ReferenceTrackingObjectGraphDecoder(ObjectGraphDecoder):
+class ObjectGraphDecoder(AbstractObjectDecoder):
   """
-  An encoder that keeps track of shared subexpressions and inserts references
-  appropriately to represent them in the output.
+  A decoder that makes no assumptions about the shape of an object graph, it
+  keeps track of shared subexpressions and inserts references appropriately to
+  represent them in the output.
   """
 
   def __init__(self, visitor):
-    super(ReferenceTrackingObjectGraphDecoder, self).__init__(visitor)
+    super(ObjectGraphDecoder, self).__init__(visitor)
     self.has_seen_once = set()
     self.has_seen_twice = set()
     self.ref_offsets = {}
@@ -466,19 +469,3 @@ class ReferenceTrackingObjectGraphDecoder(ObjectGraphDecoder):
       return True
     else:
       return False
-
-
-def _encode_with_decoder(decoder_type, value):
-    out = io.BytesIO()
-    encoder = Encoder(out)
-    decoder_type(encoder).decode(value)
-    return out.getvalue()
-
-
-def encode(value):
-  try:
-    # Assume the value is tree-shaped and try encoding it as such.
-    return _encode_with_decoder(ObjectTreeDecoder, value)
-  except SharedStructureDetected:
-    # It wasn't tree shaped -- fall back on reference tracking then.
-    return _encode_with_decoder(ReferenceTrackingObjectGraphDecoder, value)
