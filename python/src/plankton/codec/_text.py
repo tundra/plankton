@@ -27,6 +27,9 @@ class Token(object):
   def is_punctuation(self, type=None):
     return False
 
+  def is_reference(self):
+    return False
+
 
 class Number(Token):
 
@@ -73,6 +76,15 @@ class Punctuation(Token):
     return (type is None) or (type == self._value)
 
 
+class Reference(Token):
+
+  def __init__(self, name):
+    self._name = name
+
+  def is_reference(self):
+    return True
+
+
 class Tokenizer(object):
 
   def __init__(self, input):
@@ -106,6 +118,8 @@ class Tokenizer(object):
       return self._read_number()
     elif self._current == "%":
       return self._read_singleton()
+    elif self._current == "$":
+      return self._read_reference()
     elif self._current in "[],{}:":
       char = self._current
       self._advance()
@@ -155,6 +169,15 @@ class Tokenizer(object):
     self._advance()
     return String(result)
 
+  def _read_reference(self):
+    assert self._current == "$"
+    start = self._cursor
+    self._advance()
+    while self._has_more() and self._current.isalnum():
+      self._advance()
+    result = self._input[start:self._cursor-1]
+    return Reference(result)
+
 
 class TokenStream(object):
 
@@ -184,6 +207,8 @@ class TextDecoder(object):
   def _pre_parse(self, tokens):
     if tokens.current.is_atomic():
       tokens._advance()
+    elif tokens.current.is_reference():
+      return self._pre_parse_reference(tokens)
     elif tokens.current.is_punctuation("["):
       return self._pre_parse_array(tokens)
     elif tokens.current.is_punctuation("{"):
@@ -191,8 +216,9 @@ class TextDecoder(object):
     else:
       raise SyntaxError()
 
-  def _parse(self, tokens):
+  def _parse(self, tokens, ref_name=None):
     if tokens.current.is_atomic():
+      assert ref_name is None
       if tokens.current.is_int():
         self._visitor.on_int(tokens.current._value)
       elif tokens.current.is_singleton():
@@ -202,10 +228,12 @@ class TextDecoder(object):
       else:
         raise AssertionError()
       tokens._advance()
+    elif tokens.current.is_reference():
+      return self._parse_reference(tokens)
     elif tokens.current.is_punctuation("["):
-      return self._parse_array(tokens)
+      return self._parse_array(tokens, ref_name)
     elif tokens.current.is_punctuation("{"):
-      return self._parse_map(tokens)
+      return self._parse_map(tokens, ref_name)
     else:
       raise SyntaxError()
 
@@ -226,12 +254,14 @@ class TextDecoder(object):
     self._lengths[offset] = length
     tokens._advance()
 
-  def _parse_array(self, tokens):
+  def _parse_array(self, tokens, ref_name):
     assert tokens.current.is_punctuation("[")
     offset = tokens._offset
     tokens._advance()
     length = self._lengths[offset]
     self._visitor.on_begin_array(length)
+    if not ref_name is None:
+      self._visitor.on_add_ref(ref_name)
     while not tokens.current.is_punctuation("]"):
       self._parse(tokens)
       if tokens.current.is_punctuation(","):
@@ -260,12 +290,14 @@ class TextDecoder(object):
     self._lengths[offset] = length
     tokens._advance()
 
-  def _parse_map(self, tokens):
+  def _parse_map(self, tokens, ref_name):
     assert tokens.current.is_punctuation("{")
     offset = tokens._offset
     tokens._advance()
     length = self._lengths[offset]
     self._visitor.on_begin_map(length)
+    if not ref_name is None:
+      self._visitor.on_add_ref(ref_name)
     while not tokens.current.is_punctuation("}"):
       self._parse(tokens)
       tokens._advance()
@@ -275,3 +307,20 @@ class TextDecoder(object):
       else:
         break
     tokens._advance()
+
+  def _pre_parse_reference(self, tokens):
+    assert tokens.current.is_reference()
+    tokens._advance()
+    if tokens.current.is_punctuation(":"):
+      tokens._advance()
+      self._pre_parse(tokens)
+
+  def _parse_reference(self, tokens):
+    assert tokens.current.is_reference()
+    name = tokens.current._name
+    tokens._advance()
+    if tokens.current.is_punctuation(":"):
+      tokens._advance()
+      self._parse(tokens, name)
+    else:
+      self._visitor.on_get_ref(name)
