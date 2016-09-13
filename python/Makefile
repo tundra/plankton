@@ -1,2 +1,2 @@
 run-tests:
-	python -B -m unittest discover -v
+	PYTHONPATH=src python -B -m unittest discover -v
