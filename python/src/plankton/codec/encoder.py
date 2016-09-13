@@ -25,7 +25,7 @@ else:
   _BASESTRING_TYPE = str
 
 
-class Encoder(shared.Codec):
+class Encoder(object):
   """
   An abstract value encoder. Most of the work of encoding takes place here, then
   the subclasses tweak various semantics.
@@ -38,130 +38,130 @@ class Encoder(shared.Codec):
 
   def on_int(self, value):
     if value == 0:
-      self._write_tag(shared.Codec.INT_0_TAG)
+      self._write_tag(shared.INT_0_TAG)
     elif value == 1:
-      self._write_tag(shared.Codec.INT_1_TAG)
+      self._write_tag(shared.INT_1_TAG)
     elif value == 2:
-      self._write_tag(shared.Codec.INT_2_TAG)
+      self._write_tag(shared.INT_2_TAG)
     elif value == -1:
-      self._write_tag(shared.Codec.INT_M1_TAG)
+      self._write_tag(shared.INT_M1_TAG)
     elif value < 0:
-      self._write_tag(shared.Codec.INT_M_TAG)
+      self._write_tag(shared.INT_M_TAG)
       self._write_unsigned_int(-(value+1))
     else:
-      self._write_tag(shared.Codec.INT_P_TAG)
+      self._write_tag(shared.INT_P_TAG)
       self._write_unsigned_int(value)
 
   def on_singleton(self, value):
     if value is None:
-      self._write_tag(shared.Codec.SINGLETON_NULL_TAG)
+      self._write_tag(shared.SINGLETON_NULL_TAG)
     elif value is True:
-      self._write_tag(shared.Codec.SINGLETON_TRUE_TAG)
+      self._write_tag(shared.SINGLETON_TRUE_TAG)
     else:
       assert value is False
-      self._write_tag(shared.Codec.SINGLETON_FALSE_TAG)
+      self._write_tag(shared.SINGLETON_FALSE_TAG)
 
   def on_string(self, bytes, encoding):
     if len(bytes) == 0:
-      self._write_tag(shared.Codec.DEFAULT_STRING_0_TAG)
+      self._write_tag(shared.DEFAULT_STRING_0_TAG)
     elif len(bytes) == 1:
-      self._write_tag(shared.Codec.DEFAULT_STRING_1_TAG)
+      self._write_tag(shared.DEFAULT_STRING_1_TAG)
     elif len(bytes) == 2:
-      self._write_tag(shared.Codec.DEFAULT_STRING_2_TAG)
+      self._write_tag(shared.DEFAULT_STRING_2_TAG)
     elif len(bytes) == 3:
-      self._write_tag(shared.Codec.DEFAULT_STRING_3_TAG)
+      self._write_tag(shared.DEFAULT_STRING_3_TAG)
     elif len(bytes) == 4:
-      self._write_tag(shared.Codec.DEFAULT_STRING_4_TAG)
+      self._write_tag(shared.DEFAULT_STRING_4_TAG)
     elif len(bytes) == 5:
-      self._write_tag(shared.Codec.DEFAULT_STRING_5_TAG)
+      self._write_tag(shared.DEFAULT_STRING_5_TAG)
     elif len(bytes) == 6:
-      self._write_tag(shared.Codec.DEFAULT_STRING_6_TAG)
+      self._write_tag(shared.DEFAULT_STRING_6_TAG)
     elif len(bytes) == 7:
-      self._write_tag(shared.Codec.DEFAULT_STRING_7_TAG)
+      self._write_tag(shared.DEFAULT_STRING_7_TAG)
     else:
-      self._write_tag(shared.Codec.DEFAULT_STRING_N_TAG)
+      self._write_tag(shared.DEFAULT_STRING_N_TAG)
       self._write_unsigned_int(len(bytes))
     self._write_bytes(bytes)
 
   def on_begin_array(self, length):
     if length == 0:
-      self._write_tag(shared.Codec.ARRAY_0_TAG)
+      self._write_tag(shared.ARRAY_0_TAG)
     elif length == 1:
-      self._write_tag(shared.Codec.ARRAY_1_TAG)
+      self._write_tag(shared.ARRAY_1_TAG)
     elif length == 2:
-      self._write_tag(shared.Codec.ARRAY_2_TAG)
+      self._write_tag(shared.ARRAY_2_TAG)
     elif length == 3:
-      self._write_tag(shared.Codec.ARRAY_3_TAG)
+      self._write_tag(shared.ARRAY_3_TAG)
     else:
-      self._write_tag(shared.Codec.ARRAY_N_TAG)
+      self._write_tag(shared.ARRAY_N_TAG)
       self._write_unsigned_int(length)
 
   def on_begin_map(self, length):
     if length == 0:
-      self._write_tag(shared.Codec.MAP_0_TAG)
+      self._write_tag(shared.MAP_0_TAG)
     elif length == 1:
-      self._write_tag(shared.Codec.MAP_1_TAG)
+      self._write_tag(shared.MAP_1_TAG)
     elif length == 2:
-      self._write_tag(shared.Codec.MAP_2_TAG)
+      self._write_tag(shared.MAP_2_TAG)
     elif length == 3:
-      self._write_tag(shared.Codec.MAP_3_TAG)
+      self._write_tag(shared.MAP_3_TAG)
     else:
-      self._write_tag(shared.Codec.MAP_N_TAG)
+      self._write_tag(shared.MAP_N_TAG)
       self._write_unsigned_int(length)
 
   def on_id(self, bytes):
     ivalue = uuid.UUID(bytes=bytes).int
     if ivalue >= 2**64:
-      self._write_tag(shared.Codec.ID_128_TAG)
+      self._write_tag(shared.ID_128_TAG)
       self._write_bytes(bytes)
     elif ivalue >= 2**32:
-      self._write_tag(shared.Codec.ID_64_TAG)
+      self._write_tag(shared.ID_64_TAG)
       self._write_bytes(bytes[8:16])
     elif ivalue >= 2**16:
-      self._write_tag(shared.Codec.ID_32_TAG)
+      self._write_tag(shared.ID_32_TAG)
       self._write_bytes(bytes[12:16])
     else:
       assert ivalue < 2**16
-      self._write_tag(shared.Codec.ID_16_TAG)
+      self._write_tag(shared.ID_16_TAG)
       self._write_bytes(bytes[14:16])
 
   def on_blob(self, value):
-    self._write_tag(shared.Codec.BLOB_N_TAG)
+    self._write_tag(shared.BLOB_N_TAG)
     self._write_unsigned_int(len(value))
     self._write_bytes(value)
 
   def on_begin_seed(self, length):
     if length == 0:
-      self._write_tag(shared.Codec.SEED_0_TAG)
+      self._write_tag(shared.SEED_0_TAG)
     elif length == 1:
-      self._write_tag(shared.Codec.SEED_1_TAG)
+      self._write_tag(shared.SEED_1_TAG)
     elif length == 2:
-      self._write_tag(shared.Codec.SEED_2_TAG)
+      self._write_tag(shared.SEED_2_TAG)
     elif length == 3:
-      self._write_tag(shared.Codec.SEED_3_TAG)
+      self._write_tag(shared.SEED_3_TAG)
     else:
-      self._write_tag(shared.Codec.SEED_N_TAG)
+      self._write_tag(shared.SEED_N_TAG)
       self._write_unsigned_int(length)
 
   def on_begin_struct(self, tags):
     if tags == []:
-      self._write_tag(shared.Codec.STRUCT_LINEAR_0_TAG)
+      self._write_tag(shared.STRUCT_LINEAR_0_TAG)
     elif tags == [0]:
-      self._write_tag(shared.Codec.STRUCT_LINEAR_1_TAG)
+      self._write_tag(shared.STRUCT_LINEAR_1_TAG)
     elif tags == [0, 1]:
-      self._write_tag(shared.Codec.STRUCT_LINEAR_2_TAG)
+      self._write_tag(shared.STRUCT_LINEAR_2_TAG)
     elif tags == [0, 1, 2]:
-      self._write_tag(shared.Codec.STRUCT_LINEAR_3_TAG)
+      self._write_tag(shared.STRUCT_LINEAR_3_TAG)
     elif tags == [0, 1, 2, 3]:
-      self._write_tag(shared.Codec.STRUCT_LINEAR_4_TAG)
+      self._write_tag(shared.STRUCT_LINEAR_4_TAG)
     elif tags == [0, 1, 2, 3, 4]:
-      self._write_tag(shared.Codec.STRUCT_LINEAR_5_TAG)
+      self._write_tag(shared.STRUCT_LINEAR_5_TAG)
     elif tags == [0, 1, 2, 3, 4, 5]:
-      self._write_tag(shared.Codec.STRUCT_LINEAR_6_TAG)
+      self._write_tag(shared.STRUCT_LINEAR_6_TAG)
     elif tags == [0, 1, 2, 3, 4, 5, 6]:
-      self._write_tag(shared.Codec.STRUCT_LINEAR_7_TAG)
+      self._write_tag(shared.STRUCT_LINEAR_7_TAG)
     else:
-      self._write_tag(shared.Codec.STRUCT_N_TAG)
+      self._write_tag(shared.STRUCT_N_TAG)
       self._write_unsigned_int(len(tags))
       self._write_struct_tags(tags)
 
@@ -201,11 +201,11 @@ class Encoder(shared.Codec):
     add_nibble(0)
 
   def on_get_ref(self, distance):
-    self._write_tag(shared.Codec.GET_REF_TAG)
+    self._write_tag(shared.GET_REF_TAG)
     self._write_unsigned_int(distance)
 
   def on_add_ref(self):
-    self._write_tag(shared.Codec.ADD_REF_TAG)
+    self._write_tag(shared.ADD_REF_TAG)
 
   def _write_unsigned_int(self, value):
     assert value >= 0

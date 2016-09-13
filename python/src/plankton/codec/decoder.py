@@ -31,7 +31,7 @@ class DefaultDataFactory(object):
     return shared.Struct([])
 
 
-class Builder(shared.Codec):
+class Builder(object):
 
   def __init__(self, factory=None, default_string_encoding="utf-8"):
     self._factory = factory or DefaultDataFactory()
@@ -251,256 +251,256 @@ class InstructionStreamDecoder(object):
     else:
       return callback.on_invalid_instruction(self.current)
 
-  @decoder(shared.Codec.INT_P_TAG)
+  @decoder(shared.INT_P_TAG)
   def _int_p(self, callback):
     self._advance()
     return callback.on_int(self._read_unsigned_int())
 
-  @decoder(shared.Codec.INT_M1_TAG)
+  @decoder(shared.INT_M1_TAG)
   def _int_m1(self, callback):
     self._advance()
     return callback.on_int(-1)
 
-  @decoder(shared.Codec.INT_0_TAG)
+  @decoder(shared.INT_0_TAG)
   def _int_0(self, callback):
     self._advance()
     return callback.on_int(0)
 
-  @decoder(shared.Codec.INT_1_TAG)
+  @decoder(shared.INT_1_TAG)
   def _int_1(self, callback):
     self._advance()
     return callback.on_int(1)
 
-  @decoder(shared.Codec.INT_2_TAG)
+  @decoder(shared.INT_2_TAG)
   def _int_2(self, callback):
     self._advance()
     return callback.on_int(2)
 
-  @decoder(shared.Codec.INT_M_TAG)
+  @decoder(shared.INT_M_TAG)
   def _int_m(self, callback):
     self._advance()
     return callback.on_int(-(self._read_unsigned_int() + 1))
 
-  @decoder(shared.Codec.SINGLETON_NULL_TAG)
+  @decoder(shared.SINGLETON_NULL_TAG)
   def _singleton_null(self, callback):
     self._advance()
     return callback.on_singleton(None)
 
-  @decoder(shared.Codec.SINGLETON_TRUE_TAG)
+  @decoder(shared.SINGLETON_TRUE_TAG)
   def _singleton_true(self, callback):
     self._advance()
     return callback.on_singleton(True)
 
-  @decoder(shared.Codec.SINGLETON_FALSE_TAG)
+  @decoder(shared.SINGLETON_FALSE_TAG)
   def _singleton_null(self, callback):
     self._advance()
     return callback.on_singleton(False)
 
-  @decoder(shared.Codec.ID_16_TAG)
+  @decoder(shared.ID_16_TAG)
   def _id_16(self, callback):
     data = self._advance_and_read_block(2)
     return callback.on_id(b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0" + data)
 
-  @decoder(shared.Codec.ID_32_TAG)
+  @decoder(shared.ID_32_TAG)
   def _id_32(self, callback):
     data = self._advance_and_read_block(4)
     return callback.on_id(b"\0\0\0\0\0\0\0\0\0\0\0\0" + data)
 
-  @decoder(shared.Codec.ID_64_TAG)
+  @decoder(shared.ID_64_TAG)
   def _id_64(self, callback):
     data = self._advance_and_read_block(8)
     return callback.on_id(b"\0\0\0\0\0\0\0\0" + data)
 
-  @decoder(shared.Codec.ID_128_TAG)
+  @decoder(shared.ID_128_TAG)
   def _id_128(self, callback):
     data = self._advance_and_read_block(16)
     return callback.on_id(data)
 
-  @decoder(shared.Codec.ARRAY_0_TAG)
+  @decoder(shared.ARRAY_0_TAG)
   def _array_0(self, callback):
     self._advance()
     return callback.on_begin_array(0)
 
-  @decoder(shared.Codec.ARRAY_1_TAG)
+  @decoder(shared.ARRAY_1_TAG)
   def _array_1(self, callback):
     self._advance()
     return callback.on_begin_array(1)
 
-  @decoder(shared.Codec.ARRAY_2_TAG)
+  @decoder(shared.ARRAY_2_TAG)
   def _array_2(self, callback):
     self._advance()
     return callback.on_begin_array(2)
 
-  @decoder(shared.Codec.ARRAY_3_TAG)
+  @decoder(shared.ARRAY_3_TAG)
   def _array_3(self, callback):
     self._advance()
     return callback.on_begin_array(3)
 
-  @decoder(shared.Codec.ARRAY_N_TAG)
+  @decoder(shared.ARRAY_N_TAG)
   def _array_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     return callback.on_begin_array(length)
 
-  @decoder(shared.Codec.MAP_0_TAG)
+  @decoder(shared.MAP_0_TAG)
   def _map_0(self, callback):
     self._advance()
     return callback.on_begin_map(0)
 
-  @decoder(shared.Codec.MAP_1_TAG)
+  @decoder(shared.MAP_1_TAG)
   def _map_1(self, callback):
     self._advance()
     return callback.on_begin_map(1)
 
-  @decoder(shared.Codec.MAP_2_TAG)
+  @decoder(shared.MAP_2_TAG)
   def _map_2(self, callback):
     self._advance()
     return callback.on_begin_map(2)
 
-  @decoder(shared.Codec.MAP_3_TAG)
+  @decoder(shared.MAP_3_TAG)
   def _map_3(self, callback):
     self._advance()
     return callback.on_begin_map(3)
 
-  @decoder(shared.Codec.MAP_N_TAG)
+  @decoder(shared.MAP_N_TAG)
   def _map_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     return callback.on_begin_map(length)
 
-  @decoder(shared.Codec.BLOB_N_TAG)
+  @decoder(shared.BLOB_N_TAG)
   def _blob_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     data = self._read_block(length)
     return callback.on_blob(data)
 
-  @decoder(shared.Codec.DEFAULT_STRING_0_TAG)
+  @decoder(shared.DEFAULT_STRING_0_TAG)
   def _default_string_0(self, callback):
     self._advance()
     return callback.on_string(b"", None)
 
-  @decoder(shared.Codec.DEFAULT_STRING_1_TAG)
+  @decoder(shared.DEFAULT_STRING_1_TAG)
   def _default_string_1(self, callback):
     bytes = self._advance_and_read_block(1)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.Codec.DEFAULT_STRING_2_TAG)
+  @decoder(shared.DEFAULT_STRING_2_TAG)
   def _default_string_2(self, callback):
     bytes = self._advance_and_read_block(2)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.Codec.DEFAULT_STRING_3_TAG)
+  @decoder(shared.DEFAULT_STRING_3_TAG)
   def _default_string_3(self, callback):
     bytes = self._advance_and_read_block(3)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.Codec.DEFAULT_STRING_4_TAG)
+  @decoder(shared.DEFAULT_STRING_4_TAG)
   def _default_string_4(self, callback):
     bytes = self._advance_and_read_block(4)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.Codec.DEFAULT_STRING_5_TAG)
+  @decoder(shared.DEFAULT_STRING_5_TAG)
   def _default_string_5(self, callback):
     bytes = self._advance_and_read_block(5)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.Codec.DEFAULT_STRING_6_TAG)
+  @decoder(shared.DEFAULT_STRING_6_TAG)
   def _default_string_6(self, callback):
     bytes = self._advance_and_read_block(6)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.Codec.DEFAULT_STRING_7_TAG)
+  @decoder(shared.DEFAULT_STRING_7_TAG)
   def _default_string_7(self, callback):
     bytes = self._advance_and_read_block(7)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.Codec.DEFAULT_STRING_N_TAG)
+  @decoder(shared.DEFAULT_STRING_N_TAG)
   def _default_string_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     bytes = self._read_block(length)
     return callback.on_string(bytes, None)
 
-  @decoder(shared.Codec.SEED_0_TAG)
+  @decoder(shared.SEED_0_TAG)
   def _seed_0(self, callback):
     self._advance()
     return callback.on_begin_seed(0)
 
-  @decoder(shared.Codec.SEED_1_TAG)
+  @decoder(shared.SEED_1_TAG)
   def _seed_1(self, callback):
     self._advance()
     return callback.on_begin_seed(1)
 
-  @decoder(shared.Codec.SEED_2_TAG)
+  @decoder(shared.SEED_2_TAG)
   def _seed_2(self, callback):
     self._advance()
     return callback.on_begin_seed(2)
 
-  @decoder(shared.Codec.SEED_3_TAG)
+  @decoder(shared.SEED_3_TAG)
   def _seed_3(self, callback):
     self._advance()
     return callback.on_begin_seed(3)
 
-  @decoder(shared.Codec.SEED_N_TAG)
+  @decoder(shared.SEED_N_TAG)
   def _seed_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     return callback.on_begin_seed(length)
 
-  @decoder(shared.Codec.STRUCT_LINEAR_0_TAG)
+  @decoder(shared.STRUCT_LINEAR_0_TAG)
   def _struct_linear_0(self, callback):
     self._advance()
     return callback.on_begin_struct([])
 
-  @decoder(shared.Codec.STRUCT_LINEAR_1_TAG)
+  @decoder(shared.STRUCT_LINEAR_1_TAG)
   def _struct_linear_1(self, callback):
     self._advance()
     return callback.on_begin_struct([0])
 
-  @decoder(shared.Codec.STRUCT_LINEAR_2_TAG)
+  @decoder(shared.STRUCT_LINEAR_2_TAG)
   def _struct_linear_2(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1])
 
-  @decoder(shared.Codec.STRUCT_LINEAR_3_TAG)
+  @decoder(shared.STRUCT_LINEAR_3_TAG)
   def _struct_linear_3(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1, 2])
 
-  @decoder(shared.Codec.STRUCT_LINEAR_4_TAG)
+  @decoder(shared.STRUCT_LINEAR_4_TAG)
   def _struct_linear_4(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1, 2, 3])
 
-  @decoder(shared.Codec.STRUCT_LINEAR_5_TAG)
+  @decoder(shared.STRUCT_LINEAR_5_TAG)
   def _struct_linear_5(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1, 2, 3, 4])
 
-  @decoder(shared.Codec.STRUCT_LINEAR_6_TAG)
+  @decoder(shared.STRUCT_LINEAR_6_TAG)
   def _struct_linear_6(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1, 2, 3, 4, 5])
 
-  @decoder(shared.Codec.STRUCT_LINEAR_7_TAG)
+  @decoder(shared.STRUCT_LINEAR_7_TAG)
   def _struct_linear_7(self, callback):
     self._advance()
     return callback.on_begin_struct([0, 1, 2, 3, 4, 5, 6])
 
-  @decoder(shared.Codec.STRUCT_N_TAG)
+  @decoder(shared.STRUCT_N_TAG)
   def _struct_n(self, callback):
     self._advance()
     length = self._read_unsigned_int()
     tags = self._read_struct_tags(length)
     return callback.on_begin_struct(tags)
 
-  @decoder(shared.Codec.ADD_REF_TAG)
+  @decoder(shared.ADD_REF_TAG)
   def _add_ref(self, callback):
     self._advance()
     return callback.on_add_ref()
 
-  @decoder(shared.Codec.GET_REF_TAG)
+  @decoder(shared.GET_REF_TAG)
   def _get_ref(self, callback):
     self._advance()
     offset = self._read_unsigned_int()
