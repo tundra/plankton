@@ -51,7 +51,13 @@ class DefaultDataFactory(object):
 
 
 class ObjectBuilder(object):
-  """
+  """if sys.version_info < (3,):
+  _INT_TYPES = (int, long)
+  _BASESTRING_TYPE = basestring
+else:
+  _INT_TYPES = (int,)
+  _BASESTRING_TYPE = str
+
   An instruction stream visitor that builds up an object graph based on the
   incoming instructions.
   """
@@ -224,6 +230,41 @@ class SharedStructureDetected(Exception):
   pass
 
 
+class DefaultClassifier(object):
+  """
+  The standard, vanilla, classifier that divides values based on the plain,
+  boring, python types.
+  """
+
+  @staticmethod
+  def is_array(value):
+    """Is the given value one we'll consider an array?"""
+    return isinstance(value, (list, tuple))
+
+  @staticmethod
+  def is_map(value):
+    """Is the given value one we'll consider a map?"""
+    return isinstance(value, dict)
+
+  @staticmethod
+  def is_struct(value):
+    """Is the given value one we'll consider a struct?"""
+    return isinstance(value, _types.Struct)
+
+  @staticmethod
+  def is_seed(value):
+    """Is the given value one we'll consider a seed?"""
+    return isinstance(value, _types.Seed)
+
+  @staticmethod
+  def is_id(value):
+    return isinstance(value, uuid.UUID)
+
+  @staticmethod
+  def is_blob(value):
+    return isinstance(value, bytearray)
+
+
 class AbstractObjectDecoder(object):
   """
   An object decoder that leaves the handling of object references up to
@@ -231,8 +272,9 @@ class AbstractObjectDecoder(object):
   """
   __metaclass__ = ABCMeta
 
-  def __init__(self, visitor):
+  def __init__(self, visitor, classifier=None):
     self._visitor = visitor
+    self._classifier = classifier or DefaultClassifier()
 
   @abstractmethod
   def _preprocess(self, value):
@@ -265,17 +307,17 @@ class AbstractObjectDecoder(object):
       return self._visitor.on_int(value)
     elif isinstance(value, _BASESTRING_TYPE):
       return self._visitor.on_string(value.encode("utf-8"), None)
-    elif self._is_array(value):
+    elif self._classifier.is_array(value):
       return self._decode_array(value)
-    elif self._is_map(value):
+    elif self._classifier.is_map(value):
       return self._decode_map(value)
-    elif isinstance(value, uuid.UUID):
+    elif self._classifier.is_id(value):
       return self._visitor.on_id(value.bytes)
-    elif isinstance(value, bytearray):
+    elif self._classifier.is_blob(value):
       return self._visitor.on_blob(value)
-    elif self._is_seed(value):
+    elif self._classifier.is_seed(value):
       return self._decode_seed(value)
-    elif self._is_struct(value):
+    elif self._classifier.is_struct(value):
       return self._decode_struct(value)
     else:
       return self._visitor.on_invalid_value(value)
@@ -329,53 +371,31 @@ class AbstractObjectDecoder(object):
     for value in self._traverse_composite(struct):
       self._decode(value)
 
-  @staticmethod
-  def _is_array(value):
-    """Is the given value one we'll consider an array?"""
-    return isinstance(value, (list, tuple))
+  def _is_composite(self, value):
+    return (self._classifier.is_array(value)
+        or self._classifier.is_map(value)
+        or self._classifier.is_struct(value)
+        or self._classifier.is_seed(value))
 
-  @staticmethod
-  def _is_map(value):
-    """Is the given value one we'll consider a map?"""
-    return isinstance(value, dict)
-
-  @staticmethod
-  def _is_struct(value):
-    """Is the given value one we'll consider a struct?"""
-    return isinstance(value, _types.Struct)
-
-  @staticmethod
-  def _is_seed(value):
-    """Is the given value one we'll consider a seed?"""
-    return isinstance(value, _types.Seed)
-
-  @classmethod
-  def _is_composite(cls, value):
-    return (cls._is_array(value)
-        or cls._is_map(value)
-        or cls._is_struct(value)
-        or cls._is_seed(value))
-
-  @classmethod
-  def _traverse_composite(cls, value):
+  def _traverse_composite(self, value):
     """
     For a given composite value generates all the sub-values one at at time.
     Note that for the composites where values come in pairs (like key-value for
     maps) this generates them alternatingly the same way they'll appear in the
     encoded format.
     """
-    if cls._is_array(value):
+    if self._classifier.is_array(value):
       for elm in value:
         yield elm
-    elif cls._is_map(value):
+    elif self._classifier.is_map(value):
       for (k, v) in value.items():
         yield k
         yield v
-    elif cls._is_struct(value):
+    elif self._classifier.is_struct(value):
       for (t, v) in value.fields:
         yield v
     else:
-      assert cls._is_seed(value)
+      assert self._classifier.is_seed(value)
       for (f, v) in value.fields.items():
         yield f
         yield v
@@ -388,8 +408,8 @@ class ObjectTreeDecoder(AbstractObjectDecoder):
   assumption turns out not to hold.
   """
 
-  def __init__(self, visitor):
-    super(ObjectTreeDecoder, self).__init__(visitor)
+  def __init__(self, visitor, classifier=None):
+    super(ObjectTreeDecoder, self).__init__(visitor, classifier)
     self.ids_seen = set()
 
   def _preprocess(self, value):
@@ -419,8 +439,8 @@ class ObjectGraphDecoder(AbstractObjectDecoder):
   represent them in the output.
   """
 
-  def __init__(self, visitor):
-    super(ObjectGraphDecoder, self).__init__(visitor)
+  def __init__(self, visitor, classifier=None):
+    super(ObjectGraphDecoder, self).__init__(visitor, classifier)
     self.has_seen_once = set()
     self.has_seen_twice = set()
     self.ref_offsets = {}
