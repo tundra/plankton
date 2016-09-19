@@ -128,267 +128,267 @@ class BinaryDecoder(object):
     self._advance()
     return value
 
-  def decode_next(self):
+  def decode_next(self, ref_key):
     assert self._has_more
     decoder = _INSTRUCTION_DECODERS[self._current]
     if decoder:
-      return decoder(self)
+      return decoder(self, ref_key)
     else:
       return self._visitor.on_invalid_instruction(self._current)
 
   @decoder(INT_P_TAG)
-  def _int_p(self):
+  def _int_p(self, ref_key):
     self._advance()
     return self._visitor.on_int(self._read_unsigned_int())
 
   @decoder(INT_M1_TAG)
-  def _int_m1(self):
+  def _int_m1(self, ref_key):
     self._advance()
     return self._visitor.on_int(-1)
 
   @decoder(INT_0_TAG)
-  def _int_0(self):
+  def _int_0(self, ref_key):
     self._advance()
     return self._visitor.on_int(0)
 
   @decoder(INT_1_TAG)
-  def _int_1(self):
+  def _int_1(self, ref_key):
     self._advance()
     return self._visitor.on_int(1)
 
   @decoder(INT_2_TAG)
-  def _int_2(self):
+  def _int_2(self, ref_key):
     self._advance()
     return self._visitor.on_int(2)
 
   @decoder(INT_M_TAG)
-  def _int_m(self):
+  def _int_m(self, ref_key):
     self._advance()
     return self._visitor.on_int(-(self._read_unsigned_int() + 1))
 
   @decoder(SINGLETON_NULL_TAG)
-  def _singleton_null(self):
+  def _singleton_null(self, ref_key):
     self._advance()
     return self._visitor.on_singleton(None)
 
   @decoder(SINGLETON_TRUE_TAG)
-  def _singleton_true(self):
+  def _singleton_true(self, ref_key):
     self._advance()
     return self._visitor.on_singleton(True)
 
   @decoder(SINGLETON_FALSE_TAG)
-  def _singleton_null(self):
+  def _singleton_null(self, ref_key):
     self._advance()
     return self._visitor.on_singleton(False)
 
   @decoder(ID_16_TAG)
-  def _id_16(self):
+  def _id_16(self, ref_key):
     data = self._advance_and_read_block(2)
     return self._visitor.on_id(b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0" + data)
 
   @decoder(ID_32_TAG)
-  def _id_32(self):
+  def _id_32(self, ref_key):
     data = self._advance_and_read_block(4)
     return self._visitor.on_id(b"\0\0\0\0\0\0\0\0\0\0\0\0" + data)
 
   @decoder(ID_64_TAG)
-  def _id_64(self):
+  def _id_64(self, ref_key):
     data = self._advance_and_read_block(8)
     return self._visitor.on_id(b"\0\0\0\0\0\0\0\0" + data)
 
   @decoder(ID_128_TAG)
-  def _id_128(self):
+  def _id_128(self, ref_key):
     data = self._advance_and_read_block(16)
     return self._visitor.on_id(data)
 
   @decoder(ARRAY_0_TAG)
-  def _array_0(self):
+  def _array_0(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_array(0)
+    return self._visitor.on_begin_array(0, ref_key)
 
   @decoder(ARRAY_1_TAG)
-  def _array_1(self):
+  def _array_1(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_array(1)
+    return self._visitor.on_begin_array(1, ref_key)
 
   @decoder(ARRAY_2_TAG)
-  def _array_2(self):
+  def _array_2(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_array(2)
+    return self._visitor.on_begin_array(2, ref_key)
 
   @decoder(ARRAY_3_TAG)
-  def _array_3(self):
+  def _array_3(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_array(3)
+    return self._visitor.on_begin_array(3, ref_key)
 
   @decoder(ARRAY_N_TAG)
-  def _array_n(self):
+  def _array_n(self, ref_key):
     self._advance()
     length = self._read_unsigned_int()
-    return self._visitor.on_begin_array(length)
+    return self._visitor.on_begin_array(length, ref_key)
 
   @decoder(MAP_0_TAG)
-  def _map_0(self):
+  def _map_0(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_map(0)
+    return self._visitor.on_begin_map(0, ref_key)
 
   @decoder(MAP_1_TAG)
-  def _map_1(self):
+  def _map_1(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_map(1)
+    return self._visitor.on_begin_map(1, ref_key)
 
   @decoder(MAP_2_TAG)
-  def _map_2(self):
+  def _map_2(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_map(2)
+    return self._visitor.on_begin_map(2, ref_key)
 
   @decoder(MAP_3_TAG)
-  def _map_3(self):
+  def _map_3(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_map(3)
+    return self._visitor.on_begin_map(3, ref_key)
 
   @decoder(MAP_N_TAG)
-  def _map_n(self):
+  def _map_n(self, ref_key):
     self._advance()
     length = self._read_unsigned_int()
-    return self._visitor.on_begin_map(length)
+    return self._visitor.on_begin_map(length, ref_key)
 
   @decoder(BLOB_N_TAG)
-  def _blob_n(self):
+  def _blob_n(self, ref_key):
     self._advance()
     length = self._read_unsigned_int()
     data = self._read_block(length)
     return self._visitor.on_blob(data)
 
   @decoder(DEFAULT_STRING_0_TAG)
-  def _default_string_0(self):
+  def _default_string_0(self, ref_key):
     self._advance()
     return self._visitor.on_string(b"", None)
 
   @decoder(DEFAULT_STRING_1_TAG)
-  def _default_string_1(self):
+  def _default_string_1(self, ref_key):
     bytes = self._advance_and_read_block(1)
     return self._visitor.on_string(bytes, None)
 
   @decoder(DEFAULT_STRING_2_TAG)
-  def _default_string_2(self):
+  def _default_string_2(self, ref_key):
     bytes = self._advance_and_read_block(2)
     return self._visitor.on_string(bytes, None)
 
   @decoder(DEFAULT_STRING_3_TAG)
-  def _default_string_3(self):
+  def _default_string_3(self, ref_key):
     bytes = self._advance_and_read_block(3)
     return self._visitor.on_string(bytes, None)
 
   @decoder(DEFAULT_STRING_4_TAG)
-  def _default_string_4(self):
+  def _default_string_4(self, ref_key):
     bytes = self._advance_and_read_block(4)
     return self._visitor.on_string(bytes, None)
 
   @decoder(DEFAULT_STRING_5_TAG)
-  def _default_string_5(self):
+  def _default_string_5(self, ref_key):
     bytes = self._advance_and_read_block(5)
     return self._visitor.on_string(bytes, None)
 
   @decoder(DEFAULT_STRING_6_TAG)
-  def _default_string_6(self):
+  def _default_string_6(self, ref_key):
     bytes = self._advance_and_read_block(6)
     return self._visitor.on_string(bytes, None)
 
   @decoder(DEFAULT_STRING_7_TAG)
-  def _default_string_7(self):
+  def _default_string_7(self, ref_key):
     bytes = self._advance_and_read_block(7)
     return self._visitor.on_string(bytes, None)
 
   @decoder(DEFAULT_STRING_N_TAG)
-  def _default_string_n(self):
+  def _default_string_n(self, ref_key):
     self._advance()
     length = self._read_unsigned_int()
     bytes = self._read_block(length)
     return self._visitor.on_string(bytes, None)
 
   @decoder(SEED_0_TAG)
-  def _seed_0(self):
+  def _seed_0(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_seed(0)
+    return self._visitor.on_begin_seed(0, ref_key)
 
   @decoder(SEED_1_TAG)
-  def _seed_1(self):
+  def _seed_1(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_seed(1)
+    return self._visitor.on_begin_seed(1, ref_key)
 
   @decoder(SEED_2_TAG)
-  def _seed_2(self):
+  def _seed_2(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_seed(2)
+    return self._visitor.on_begin_seed(2, ref_key)
 
   @decoder(SEED_3_TAG)
-  def _seed_3(self):
+  def _seed_3(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_seed(3)
+    return self._visitor.on_begin_seed(3, ref_key)
 
   @decoder(SEED_N_TAG)
-  def _seed_n(self):
+  def _seed_n(self, ref_key):
     self._advance()
     length = self._read_unsigned_int()
-    return self._visitor.on_begin_seed(length)
+    return self._visitor.on_begin_seed(length, ref_key)
 
   @decoder(STRUCT_LINEAR_0_TAG)
-  def _struct_linear_0(self):
+  def _struct_linear_0(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_struct([])
+    return self._visitor.on_begin_struct([], ref_key)
 
   @decoder(STRUCT_LINEAR_1_TAG)
-  def _struct_linear_1(self):
+  def _struct_linear_1(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_struct([0])
+    return self._visitor.on_begin_struct([0], ref_key)
 
   @decoder(STRUCT_LINEAR_2_TAG)
-  def _struct_linear_2(self):
+  def _struct_linear_2(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_struct([0, 1])
+    return self._visitor.on_begin_struct([0, 1], ref_key)
 
   @decoder(STRUCT_LINEAR_3_TAG)
-  def _struct_linear_3(self):
+  def _struct_linear_3(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_struct([0, 1, 2])
+    return self._visitor.on_begin_struct([0, 1, 2], ref_key)
 
   @decoder(STRUCT_LINEAR_4_TAG)
-  def _struct_linear_4(self):
+  def _struct_linear_4(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_struct([0, 1, 2, 3])
+    return self._visitor.on_begin_struct([0, 1, 2, 3], ref_key)
 
   @decoder(STRUCT_LINEAR_5_TAG)
-  def _struct_linear_5(self):
+  def _struct_linear_5(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_struct([0, 1, 2, 3, 4])
+    return self._visitor.on_begin_struct([0, 1, 2, 3, 4], ref_key)
 
   @decoder(STRUCT_LINEAR_6_TAG)
-  def _struct_linear_6(self):
+  def _struct_linear_6(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_struct([0, 1, 2, 3, 4, 5])
+    return self._visitor.on_begin_struct([0, 1, 2, 3, 4, 5], ref_key)
 
   @decoder(STRUCT_LINEAR_7_TAG)
-  def _struct_linear_7(self):
+  def _struct_linear_7(self, ref_key):
     self._advance()
-    return self._visitor.on_begin_struct([0, 1, 2, 3, 4, 5, 6])
+    return self._visitor.on_begin_struct([0, 1, 2, 3, 4, 5, 6], ref_key)
 
   @decoder(STRUCT_N_TAG)
-  def _struct_n(self):
+  def _struct_n(self, ref_key):
     self._advance()
     length = self._read_unsigned_int()
     tags = self._read_struct_tags(length)
-    return self._visitor.on_begin_struct(tags)
+    return self._visitor.on_begin_struct(tags, ref_key)
 
   @decoder(ADD_REF_TAG)
-  def _add_ref(self):
+  def _add_ref(self, ref_key):
     self._advance()
     offset = self._next_ref_offset
     self._next_ref_offset += 1
-    return self._visitor.on_add_ref(offset)
+    return self.decode_next(ref_key=offset)
 
   @decoder(GET_REF_TAG)
-  def _get_ref(self):
+  def _get_ref(self, ref_key):
     self._advance()
     offset = self._read_unsigned_int()
     return self._visitor.on_get_ref(self._next_ref_offset - offset - 1)
@@ -514,7 +514,8 @@ class BinaryEncoder(_types.Visitor):
       self._write_unsigned_int(len(bytes))
     self._write_bytes(bytes)
 
-  def on_begin_array(self, length):
+  def on_begin_array(self, length, ref_key):
+    self._maybe_add_ref(ref_key)
     if length == 0:
       self._write_tag(ARRAY_0_TAG)
     elif length == 1:
@@ -527,7 +528,8 @@ class BinaryEncoder(_types.Visitor):
       self._write_tag(ARRAY_N_TAG)
       self._write_unsigned_int(length)
 
-  def on_begin_map(self, length):
+  def on_begin_map(self, length, ref_key):
+    self._maybe_add_ref(ref_key)
     if length == 0:
       self._write_tag(MAP_0_TAG)
     elif length == 1:
@@ -561,7 +563,8 @@ class BinaryEncoder(_types.Visitor):
     self._write_unsigned_int(len(value))
     self._write_bytes(value)
 
-  def on_begin_seed(self, length):
+  def on_begin_seed(self, length, ref_key):
+    self._maybe_add_ref(ref_key)
     if length == 0:
       self._write_tag(SEED_0_TAG)
     elif length == 1:
@@ -574,7 +577,8 @@ class BinaryEncoder(_types.Visitor):
       self._write_tag(SEED_N_TAG)
       self._write_unsigned_int(length)
 
-  def on_begin_struct(self, tags):
+  def on_begin_struct(self, tags, ref_key):
+    self._maybe_add_ref(ref_key)
     if tags == []:
       self._write_tag(STRUCT_LINEAR_0_TAG)
     elif tags == [0]:
@@ -635,9 +639,10 @@ class BinaryEncoder(_types.Visitor):
     self._write_tag(GET_REF_TAG)
     self._write_unsigned_int(self._ref_count - key - 1)
 
-  def on_add_ref(self, key):
-    self._write_tag(ADD_REF_TAG)
-    self._ref_count += 1
+  def _maybe_add_ref(self, ref_key):
+    if not ref_key is None:
+      self._write_tag(ADD_REF_TAG)
+      self._ref_count += 1
 
   def _write_unsigned_int(self, value):
     assert value >= 0

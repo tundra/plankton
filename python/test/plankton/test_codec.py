@@ -148,6 +148,8 @@ class TestCase(object):
       count = int(arg)
       fields = []
       result = plankton.codec.Struct(fields)
+      if not dest is None:
+        vars[dest] = result
       for i in range(0, count):
         tag = int(parts[1 + 2 * i])
         value = self._eval_atom(vars, parts[2 + 2 * i])
@@ -260,7 +262,7 @@ class AbstractCodecTest(unittest.TestCase):
       decoded = plankton.codec.decode_binary(bton.data)
       self.assertStructurallyEqual(data, decoded)
 
-  def test_binary_clone(self):
+  def test_object_clone(self):
     """
     Test that traversing the data with the decoder yields a new value that is
     identical to the input, a clone.

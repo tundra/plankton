@@ -13,7 +13,7 @@ def decode_binary(input, factory=None, default_string_encoding=None):
   builder = ObjectBuilder(factory, default_string_encoding)
   decoder = BinaryDecoder(input, builder)
   while not builder.has_result:
-    decoder.decode_next()
+    decoder.decode_next(ref_key=None)
   return builder.result
 
 

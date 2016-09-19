@@ -254,14 +254,12 @@ class TextDecoder(object):
     self._lengths[offset] = length
     tokens._advance()
 
-  def _parse_array(self, tokens, ref_name):
+  def _parse_array(self, tokens, ref_key):
     assert tokens.current.is_punctuation("[")
     offset = tokens._offset
     tokens._advance()
     length = self._lengths[offset]
-    self._visitor.on_begin_array(length)
-    if not ref_name is None:
-      self._visitor.on_add_ref(ref_name)
+    self._visitor.on_begin_array(length, ref_key)
     while not tokens.current.is_punctuation("]"):
       self._parse(tokens)
       if tokens.current.is_punctuation(","):
@@ -290,14 +288,12 @@ class TextDecoder(object):
     self._lengths[offset] = length
     tokens._advance()
 
-  def _parse_map(self, tokens, ref_name):
+  def _parse_map(self, tokens, ref_key):
     assert tokens.current.is_punctuation("{")
     offset = tokens._offset
     tokens._advance()
     length = self._lengths[offset]
-    self._visitor.on_begin_map(length)
-    if not ref_name is None:
-      self._visitor.on_add_ref(ref_name)
+    self._visitor.on_begin_map(length, ref_key)
     while not tokens.current.is_punctuation("}"):
       self._parse(tokens)
       tokens._advance()

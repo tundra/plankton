@@ -66,12 +66,6 @@ class ObjectBuilder(_types.Visitor):
     # A stack of info about how to pack values into composites when we've
     # collected enough values.
     self._pending_ends = []
-    # The last value we've seen but only if a ref can be created to it, if the
-    # last value was atomic this will be None. Note that since None itself is
-    # atomic there is no ambiguity between "holding no reffable value" and
-    # "holding a reffable value that happens to be None" because None is never
-    # reffable.
-    self._last_reffable = None
     # The final result of parsing. It's totally valid for this to be None since
     # that's a valid parsing result.
     self._result = None
@@ -104,19 +98,17 @@ class ObjectBuilder(_types.Visitor):
     raise Exception("Invalid instruction 0x{:x}".format(code))
 
   def on_int(self, value):
-    self._last_reffable = None
     self._push(value)
 
   def on_singleton(self, value):
-    self._last_reffable = None
     self._push(value)
 
   def on_id(self, data):
-    self._last_reffable = None
     self._push(self._factory.new_id(data))
 
-  def on_begin_array(self, length):
-    array = self._last_reffable = self._factory.new_array()
+  def on_begin_array(self, length, ref_key):
+    array = self._factory.new_array()
+    self._maybe_add_ref(ref_key, array)
     if length == 0:
       self._push(array)
     else:
@@ -126,8 +118,9 @@ class ObjectBuilder(_types.Visitor):
     array[:] = values
     self._push(array)
 
-  def on_begin_map(self, length):
-    map = self._last_reffable = self._factory.new_map()
+  def on_begin_map(self, length, ref_key):
+    map = self._factory.new_map()
+    self._maybe_add_ref(ref_key, map)
     if length == 0:
       self._push(map)
     else:
@@ -139,7 +132,6 @@ class ObjectBuilder(_types.Visitor):
     self._push(map)
 
   def on_blob(self, data):
-    self._last_reffable = None
     self._push(data)
 
   def on_string(self, data, encoding):
@@ -147,8 +139,9 @@ class ObjectBuilder(_types.Visitor):
       encoding = self._default_string_encoding
     self._push(data.decode(encoding))
 
-  def on_begin_seed(self, field_count):
-    seed = self._last_reffable = self._factory.new_seed()
+  def on_begin_seed(self, field_count, ref_key):
+    seed = self._factory.new_seed()
+    self._maybe_add_ref(ref_key, seed)
     self._schedule_end(1, self._end_seed_header, seed, field_count)
 
   def _end_seed_header(self, one, seed, header_values, field_count):
@@ -164,8 +157,9 @@ class ObjectBuilder(_types.Visitor):
       seed.fields[field_values[i]] = field_values[i+1]
     self._push(seed)
 
-  def on_begin_struct(self, tags):
-    struct = self._last_reffable = self._factory.new_struct()
+  def on_begin_struct(self, tags, ref_key):
+    struct = self._factory.new_struct()
+    self._maybe_add_ref(ref_key, struct)
     tag_count = len(tags)
     if tag_count == 0:
       self._push(struct)
@@ -177,16 +171,12 @@ class ObjectBuilder(_types.Visitor):
       struct.fields.append((tags[i], values[i]))
     self._push(struct)
 
-  def on_add_ref(self, key):
-    assert not self._last_reffable is None
-    assert not key in self._refs
-    self._refs[key] = self._last_reffable
-    # Once you've added one ref you can't add any more so clear last_reffable.
-    self._last_reffable = None
-
   def on_get_ref(self, key):
-    self._last_reffable = None
     self._push(self._refs[key])
+
+  def _maybe_add_ref(self, ref_key, value):
+    if not ref_key is None:
+      self._refs[ref_key] = value
 
   def _push(self, value):
     """
@@ -323,51 +313,51 @@ class AbstractObjectDecoder(object):
       return self._visitor.on_invalid_value(value)
 
   def _decode_array(self, array):
-    should_add_ref = self._should_add_ref(array)
-    if not should_add_ref:
+    ref_key = None
+    if self._should_add_ref(array):
+      ref_key = self._get_ref_offset()
+    else:
       ref = self._get_backref(array)
       if not ref is None:
         return self._visitor.on_get_ref(ref)
-    self._visitor.on_begin_array(len(array))
-    if should_add_ref:
-      self._visitor.on_add_ref(self._get_ref_offset())
+    self._visitor.on_begin_array(len(array), ref_key)
     for value in self._traverse_composite(array):
       self._decode(value)
 
   def _decode_map(self, map):
-    should_add_ref = self._should_add_ref(map)
-    if not should_add_ref:
+    ref_key = None
+    if self._should_add_ref(map):
+      ref_key = self._get_ref_offset()
+    else:
       ref = self._get_backref(map)
       if not ref is None:
         return self._visitor.on_get_ref(ref)
-    self._visitor.on_begin_map(len(map))
-    if should_add_ref:
-      self._visitor.on_add_ref(self._get_ref_offset())
+    self._visitor.on_begin_map(len(map), ref_key)
     for value in self._traverse_composite(map):
       self._decode(value)
 
   def _decode_seed(self, seed):
-    should_add_ref = self._should_add_ref(seed)
-    if not should_add_ref:
+    ref_key = None
+    if self._should_add_ref(seed):
+      ref_key = self._get_ref_offset()
+    else:
       ref = self._get_backref(seed)
       if not ref is None:
-        return self._visitor.on_get_ref(seed)
-    self._visitor.on_begin_seed(len(seed.fields))
-    if should_add_ref:
-      self._visitor.on_add_ref(self._get_ref_offset())
+        return self._visitor.on_get_ref(ref)
+    self._visitor.on_begin_seed(len(seed.fields), ref_key)
     self._decode(seed.header)
     for value in self._traverse_composite(seed):
       self._decode(value)
 
   def _decode_struct(self, struct):
-    should_add_ref = self._should_add_ref(struct)
-    if not should_add_ref:
+    ref_key = None
+    if self._should_add_ref(struct):
+      ref_key = self._get_ref_offset()
+    else:
       ref = self._get_backref(struct)
       if not ref is None:
-        return self._visitor.on_get_ref(struct)
-    self._visitor.on_begin_struct([t for (t, v) in struct.fields])
-    if should_add_ref:
-      self._visitor.on_add_ref(self._get_ref_offset())
+        return self._visitor.on_get_ref(ref)
+    self._visitor.on_begin_struct([t for (t, v) in struct.fields], ref_key)
     for value in self._traverse_composite(struct):
       self._decode(value)
 

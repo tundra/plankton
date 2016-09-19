@@ -45,14 +45,6 @@ class Visitor(object):
     pass
 
   @abstractmethod
-  def on_begin_array(self, length):
-    pass
-
-  @abstractmethod
-  def on_begin_map(self, length):
-    pass
-
-  @abstractmethod
   def on_blob(self, data):
     pass
 
@@ -61,15 +53,19 @@ class Visitor(object):
     pass
 
   @abstractmethod
-  def on_begin_seed(self, field_count):
+  def on_begin_array(self, length, ref_key):
     pass
 
   @abstractmethod
-  def on_begin_struct(self, tags):
+  def on_begin_map(self, length, ref_key):
     pass
 
   @abstractmethod
-  def on_add_ref(self):
+  def on_begin_seed(self, field_count, ref_key):
+    pass
+
+  @abstractmethod
+  def on_begin_struct(self, tags, ref_key):
     pass
 
   @abstractmethod

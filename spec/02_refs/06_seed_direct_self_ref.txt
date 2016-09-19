@@ -1,0 +1,8 @@
+----- data -----
+$a = seed:1 int:10 str:x $a
+yield $a
+
+----- bton -----
+a0 61
+  08 0a
+  51 78 a1 00
