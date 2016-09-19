@@ -62,6 +62,26 @@ class ObjectBuilder(_types.StackingBuilder):
     self._default_string_encoding = default_string_encoding or "utf-8"
     self._refs = {}
 
+    # Schedule an end that stores the result in the _result field.
+    self._schedule_end(1, self._store_result, None, None)
+
+  def _store_result(self, total_count, open_result, values, data):
+    """Store the value currently on the stack in the result field."""
+    [self._result] = values
+    self._push(None)
+
+  @property
+  def has_result(self):
+    """Has this builder completed building the object graph?"""
+    return len(self._pending_ends) == 1
+
+  @property
+  def result(self):
+    """If this builder has a completed value, yields it."""
+    assert self.has_result
+    assert [None] == self._value_stack
+    return self._result
+
   def on_invalid_instruction(self, code):
     raise Exception("Invalid instruction 0x{:x}".format(code))
 

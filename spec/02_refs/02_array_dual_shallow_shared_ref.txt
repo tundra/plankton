@@ -11,4 +11,9 @@ yield array:4 $a $b $a $b
   a1 00
 
 ----- tton -----
+[$0:[0], $1:[1], $0, $1]
+
+----- tton -----
+% canonical: false
+
 [$a:[0], $b:[1], $a, $b]

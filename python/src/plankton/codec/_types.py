@@ -99,26 +99,6 @@ class StackingBuilder(Visitor):
     # have to explicitly check for the bottom of the pending ends.
     self._schedule_end(2, 1, None, None)
 
-    # Schedule an end that stores the result in the _result field.
-    self._schedule_end(1, self._store_result, None, None)
-
-  def _store_result(self, total_count, open_result, values, data):
-    """Store the value currently on the stack in the result field."""
-    [self._result] = values
-    self._push(None)
-
-  @property
-  def has_result(self):
-    """Has this builder completed building the object graph?"""
-    return len(self._pending_ends) == 1
-
-  @property
-  def result(self):
-    """If this builder has a completed value, yields it."""
-    assert self.has_result
-    assert [None] == self._value_stack
-    return self._result
-
   def _push(self, value):
     """
     Push a value on top of the value stack and execute any pending ends that

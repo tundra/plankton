@@ -1,8 +1,11 @@
 import itertools
 
+from plankton.codec import _types
+
 
 __all__ = [
   "TextDecoder",
+  "TextEncoder",
 ]
 
 
@@ -320,3 +323,91 @@ class TextDecoder(object):
       self._parse(tokens, name)
     else:
       self._visitor.on_get_ref(name)
+
+
+class TextEncoder(_types.StackingBuilder):
+
+  def __init__(self, out):
+    super(TextEncoder, self).__init__()
+    self._out = out
+    self._default_string_encoding = "utf-8"
+    self._schedule_end(1, self._flush, None, None)
+
+  def _flush(self, total_count, unused_1, values, unused_2):
+    """Store the value currently on the stack in the result field."""
+    [result] = values
+    self._out.write(result.decode(self._default_string_encoding))
+
+  def on_invalid_instruction(self, code):
+    raise Exception("Invalid instruction 0x{:x}".format(code))
+
+  def on_int(self, value):
+    self._push(str(value))
+
+  def on_singleton(self, value):
+    if value is None:
+      self._push("%n")
+    elif value is True:
+      self._push("%t")
+    else:
+      assert value is False
+      self._push("%f")
+
+  def on_string(self, bytes, encoding):
+    self._push('"%s"' % bytes)
+
+  def on_begin_array(self, length, ref_key):
+    if length == 0:
+      self._push(self._maybe_add_ref(ref_key, "[]"))
+    else:
+      self._schedule_end(length, self._end_array, ref_key, None)
+
+  def _end_array(self, total_length, ref_key, values, unused):
+    self._push(self._maybe_add_ref(ref_key, "[%s]" % (", ".join(values))))
+
+  def on_begin_map(self, length, ref_key):
+    if length == 0:
+      self._push(self._maybe_add_ref(ref_key, "{}"))
+    else:
+      self._schedule_end(2 * length, self._end_map, ref_key, None)
+
+  def _end_map(self, total_length, ref_key, values, unused):
+    pairs = ["%s: %s" % (values[i], values[i+1]) for i in range(0, total_length, 2)]
+    self._push(self._maybe_add_ref(ref_key, "{%s}" % (", ".join(pairs))))
+
+  def on_id(self, bytes):
+    pass
+
+  def on_blob(self, value):
+    pass
+
+  def on_begin_seed(self, length, ref_key):
+    pass
+
+  def on_begin_struct(self, tags, ref_key):
+    pass
+
+  def on_get_ref(self, key):
+    self._push("$%s" % key)
+
+  def _maybe_add_ref(self, ref_key, text):
+    if ref_key is None:
+      return text
+    else:
+      return "$%s:%s" % (ref_key, text)
+
+  def _write_unsigned_int(self, value):
+    assert value >= 0
+    while value >= 0x80:
+      self._write_byte((value & 0x7F) | 0x80)
+      value = (value >> 7) - 1
+    self._write_byte(value)
+
+  def _write_bytes(self, data):
+    self._out.write(data)
+
+  def _write_byte(self, byte):
+    self._out.write(bytearray([byte]))
+
+  def _write_tag(self, byte):
+    self._write_byte(byte)

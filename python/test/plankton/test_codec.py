@@ -82,6 +82,12 @@ class TestCase(object):
     self.ttons = ttons
 
   @property
+  def canonical_tton(self):
+    for tton in self.ttons:
+      if tton.is_canonical():
+        return tton
+
+  @property
   def data(self):
     """Returns the parsed data/object this test case represents."""
     vars = {}
@@ -243,7 +249,7 @@ class AbstractCodecTest(unittest.TestCase):
   def setUp(self):
     self.test_case = _parse_test_case(self.get_test_file())
 
-  def test_binary_encode(self):
+  def test_data_to_canonical_bton(self):
     """
     Test that encoding the hardcoded data yields the expected bytes.
     """
@@ -253,7 +259,7 @@ class AbstractCodecTest(unittest.TestCase):
       if bton.is_canonical():
         self.assertEqual(bton.data, encoded)
 
-  def test_binary_decode(self):
+  def test_all_btons_to_data(self):
     """
     Test that decoding the hardcoded bytes yields the expected data.
     """
@@ -262,7 +268,7 @@ class AbstractCodecTest(unittest.TestCase):
       decoded = plankton.codec.decode_binary(bton.data)
       self.assertStructurallyEqual(data, decoded)
 
-  def test_object_clone(self):
+  def test_data_object_clone(self):
     """
     Test that traversing the data with the decoder yields a new value that is
     identical to the input, a clone.
@@ -273,11 +279,21 @@ class AbstractCodecTest(unittest.TestCase):
     cloned = builder.result
     self.assertStructurallyEqual(self.test_case.data, cloned)
 
-  def test_text_decode(self):
+  def test_all_ttons_to_data(self):
+    """
+    Test that decoding the tton sections yields the expected data.
+    """
     data = self.test_case.data
     for tton in self.test_case.ttons:
       decoded = plankton.codec.decode_text(tton.source)
       self.assertStructurallyEqual(data, decoded)
+
+  def test_data_to_canonical_tton(self):
+    data = self.test_case.data
+    tton = self.test_case.canonical_tton
+    if tton:
+      encoded = plankton.codec.encode_text(data)
+      self.assertEqual(tton.source, encoded)
 
   def assertStructurallyEqual(self, a, b):
     """Assertion that fails unless a and b are structurally equal."""

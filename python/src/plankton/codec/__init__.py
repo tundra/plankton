@@ -25,10 +25,10 @@ def decode_text(input, factory=None, default_string_encoding=None):
 
 
 def _encode_binary_with_decoder(decoder_type, value):
-    out = io.BytesIO()
-    encoder = BinaryEncoder(out)
-    decoder_type(encoder).decode(value)
-    return out.getvalue()
+  out = io.BytesIO()
+  encoder = BinaryEncoder(out)
+  decoder_type(encoder).decode(value)
+  return out.getvalue()
 
 
 def encode_binary(value):
@@ -38,3 +38,19 @@ def encode_binary(value):
   except SharedStructureDetected:
     # It wasn't tree shaped -- fall back on reference tracking then.
     return _encode_binary_with_decoder(ObjectGraphDecoder, value)
+
+
+def _encode_text_with_decoder(decoder_type, value):
+  out = io.StringIO()
+  encoder = TextEncoder(out)
+  decoder_type(encoder).decode(value)
+  return out.getvalue()
+
+
+def encode_text(value):
+  try:
+    # Assume the value is tree-shaped and try encoding it as such.
+    return _encode_text_with_decoder(ObjectTreeDecoder, value)
+  except SharedStructureDetected:
+    # It wasn't tree shaped -- fall back on reference tracking then.
+    return _encode_text_with_decoder(ObjectGraphDecoder, value)

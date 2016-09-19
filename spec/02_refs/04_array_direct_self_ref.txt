@@ -7,4 +7,9 @@ a0 21
   a1 00
 
 ----- tton -----
+$0:[$0]
+
+----- tton -----
+% canonical: false
+
 $a:[$a]

@@ -9,4 +9,9 @@ yield array:2 $a $a
   a1 00
 
 ----- tton -----
+[$0:[0], $0]
+
+----- tton -----
+% canonical: false
+
 [$a:[0], $a]
