@@ -50,49 +50,17 @@ class DefaultDataFactory(object):
     return _types.Struct([])
 
 
-class ObjectBuilder(_types.Visitor):
+class ObjectBuilder(_types.StackingBuilder):
   """
   An instruction stream visitor that builds up an object graph based on the
   incoming instructions.
   """
 
   def __init__(self, factory=None, default_string_encoding=None):
+    super(ObjectBuilder, self).__init__()
     self._factory = factory or DefaultDataFactory()
     self._default_string_encoding = default_string_encoding or "utf-8"
     self._refs = {}
-    # The stack of values we've seen so far but haven't packed into a composite
-    # value of some sort.
-    self._value_stack = []
-    # A stack of info about how to pack values into composites when we've
-    # collected enough values.
-    self._pending_ends = []
-    # The final result of parsing. It's totally valid for this to be None since
-    # that's a valid parsing result.
-    self._result = None
-    self._init()
-
-  def _init(self):
-    # Schedule an end that doesn't do anything but that ensures that we don't
-    # have to explicitly check for the bottom of the pending ends.
-    self._schedule_end(2, 1, None, None)
-    # Schedule an end that stores the result in the _result field.
-    self._schedule_end(1, self._store_result, None, None)
-
-  @property
-  def has_result(self):
-    """Has this builder completed building the object graph?"""
-    return len(self._pending_ends) == 1
-
-  @property
-  def result(self):
-    """If this builder has completed the object graph, yields the value."""
-    assert self.has_result
-    assert [None] == self._value_stack
-    return self._result
-
-  def _store_result(self, total_count, open_result, values, data):
-    [self._result] = values
-    self._push(None)
 
   def on_invalid_instruction(self, code):
     raise Exception("Invalid instruction 0x{:x}".format(code))
@@ -177,33 +145,6 @@ class ObjectBuilder(_types.Visitor):
   def _maybe_add_ref(self, ref_key, value):
     if not ref_key is None:
       self._refs[ref_key] = value
-
-  def _push(self, value):
-    """
-    Push a value on top of the value stack and execute any pending ends that
-    are now ready to be executed.
-    """
-    self._value_stack.append(value)
-    self._pending_ends[-1][1] += 1
-    if self._pending_ends[-1][0] == self._pending_ends[-1][1]:
-      [total_count, added_count, callback, open_result, data] = self._pending_ends.pop()
-      values = self._value_stack[-total_count:]
-      del self._value_stack[-total_count:]
-      # The callback may or may not push a value which will cause this to be
-      # called again and then we'll deal with any pending ends further down
-      # the pending end stack.
-      callback(total_count, open_result, values, data)
-
-  def _schedule_end(self, total_count, callback, open_result, data):
-    """
-    Schedule the given callback to be called after total_count values have
-    become available. The count has to be > 0 because that simplifies things
-    and also, if the number of remaining values is 0 the caller can just
-    create the result immediately.
-    """
-    assert total_count > 0
-    assert callback
-    self._pending_ends.append([total_count, 0, callback, open_result, data])
 
 
 class SharedStructureDetected(Exception):
