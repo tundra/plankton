@@ -212,7 +212,7 @@ class Tokenizer(object):
       self._advance()
     short_bytes = self._input[start:self._cursor-1]
     padded_bytes = "0" * (32 - len(short_bytes)) + short_bytes
-    return Id(bytes.fromhex(padded_bytes))
+    return Id(bytes(bytearray.fromhex(padded_bytes)))
 
   @staticmethod
   def _is_hex(chr):
