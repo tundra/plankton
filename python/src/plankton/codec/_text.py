@@ -316,10 +316,21 @@ class TextDecoder(object):
     offset = tokens._offset
     tokens._advance()
     header = self._pre_parse(tokens)
+    length = 0
     assert tokens.current.is_punctuation("(")
     tokens._advance()
-    length = 0
-    assert tokens.current.is_punctuation(")")
+    while not tokens.current.is_punctuation(")"):
+      length += 1
+      self._pre_parse(tokens)
+      assert tokens.current.is_punctuation(":")
+      tokens._advance()
+      self._pre_parse(tokens)
+      if tokens.current.is_punctuation(","):
+        tokens._advance()
+      else:
+        break
+    if not tokens.current.is_punctuation(")"):
+      raise SyntaxError()
     tokens._advance()
     self._lengths[offset] = length
 
@@ -332,7 +343,17 @@ class TextDecoder(object):
     self._parse(tokens)
     assert tokens.current.is_punctuation("(")
     tokens._advance()
-    assert tokens.current.is_punctuation(")")
+    while not tokens.current.is_punctuation(")"):
+      self._parse(tokens)
+      assert tokens.current.is_punctuation(":")
+      tokens._advance()
+      self._parse(tokens)
+      if tokens.current.is_punctuation(","):
+        tokens._advance()
+      else:
+        break
+    if not tokens.current.is_punctuation(")"):
+      raise SyntaxError()
     tokens._advance()
 
   def _pre_parse_reference(self, tokens):
@@ -425,7 +446,12 @@ class TextEncoder(_types.StackingBuilder):
       [header] = values
       self._push(self._maybe_add_ref(ref_key, "@%s()" % header))
     else:
-      self._schedule_end(2 * field_count, self._end_seed, ref_key, None)
+      self._schedule_end(2 * field_count, self._end_seed, ref_key, values)
+
+  def _end_seed(self, total_length, ref_key, values, headers):
+    [header] = headers
+    pairs = ["%s: %s" % (values[i], values[i+1]) for i in range(0, total_length, 2)]
+    self._push(self._maybe_add_ref(ref_key, "@%s(%s)" % (header, ", ".join(pairs))))
 
   def on_begin_struct(self, tags, ref_key):
     pass

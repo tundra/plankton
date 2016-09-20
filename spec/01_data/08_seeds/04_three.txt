@@ -7,3 +7,6 @@ yield seed:3 int:10 str:x int:0 str:y int:1 str:z int:2
   51 78 00
   51 79 01
   51 7a 02
+
+----- tton -----
+@10("x": 0, "y": 1, "z": 2)
