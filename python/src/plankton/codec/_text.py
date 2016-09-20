@@ -353,6 +353,14 @@ class TextDecoder(object):
       self._visitor.on_get_ref(name)
 
 
+# Hey no problem, I have so much time I don't mind wasting tons of it on
+# unforced incompatibilities between python versions. It's my pleasure.
+try:
+  to_unicode = unicode
+except NameError:
+  to_unicode = lambda x: x
+
+
 class TextEncoder(_types.StackingBuilder):
 
   def __init__(self, out):
@@ -364,7 +372,7 @@ class TextEncoder(_types.StackingBuilder):
   def _flush(self, total_count, unused_1, values, unused_2):
     """Store the value currently on the stack in the result field."""
     [result] = values
-    self._out.write(result.decode(self._default_string_encoding))
+    self._out.write(to_unicode(result))
 
   def on_invalid_instruction(self, code):
     raise Exception("Invalid instruction 0x{:x}".format(code))
@@ -382,7 +390,7 @@ class TextEncoder(_types.StackingBuilder):
       self._push("%f")
 
   def on_string(self, bytes, encoding):
-    self._push('"%s"' % bytes)
+    self._push('"%s"' % bytes.decode(self._default_string_encoding))
 
   def on_begin_array(self, length, ref_key):
     if length == 0:
