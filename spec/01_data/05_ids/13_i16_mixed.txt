@@ -3,3 +3,11 @@ yield id:abcd
 
 ----- bton -----
 14 ab cd
+
+----- tton -----
+&abcd
+
+----- tton -----
+% canonical: false
+
+&ABCD

@@ -3,3 +3,31 @@ yield id:0
 
 ----- bton -----
 14 00 00
+
+----- tton -----
+&0
+
+----- tton -----
+% canonical: false
+
+&00
+
+----- tton -----
+% canonical: false
+
+&0000
+
+----- tton -----
+% canonical: false
+
+&00000000
+
+----- tton -----
+% canonical: false
+
+&0000000000000000
+
+----- tton -----
+% canonical: false
+
+&00000000000000000000000000000000

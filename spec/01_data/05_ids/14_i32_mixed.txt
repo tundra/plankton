@@ -3,3 +3,11 @@ yield id:abcdefab
 
 ----- bton -----
 15 ab cd ef ab
+
+----- tton -----
+&abcdefab
+
+----- tton -----
+% canonical: false
+
+&ABCDEFAB

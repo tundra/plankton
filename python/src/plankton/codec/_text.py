@@ -1,4 +1,5 @@
 import itertools
+import uuid
 
 from plankton.codec import _types
 
@@ -25,6 +26,9 @@ class Token(object):
     return False
 
   def is_singleton(self):
+    return False
+
+  def is_id(self):
     return False
 
   def is_punctuation(self, type=None):
@@ -67,6 +71,18 @@ class Singleton(Token):
     return True
 
   def is_singleton(self):
+    return True
+
+
+class Id(Token):
+
+  def __init__(self, value):
+    self._value = value
+
+  def is_atomic(self):
+    return True
+
+  def is_id(self):
     return True
 
 
@@ -128,6 +144,8 @@ class Tokenizer(object):
       return self._read_singleton()
     elif self._current == "$":
       return self._read_reference()
+    elif self._current == "&":
+      return self._read_id()
     elif self._current in "[],{}:@()":
       char = self._current
       self._advance()
@@ -185,6 +203,20 @@ class Tokenizer(object):
       self._advance()
     result = self._input[start:self._cursor-1]
     return Reference(result)
+
+  def _read_id(self):
+    assert self._current == "&"
+    start = self._cursor
+    self._advance()
+    while self._has_more() and self._is_hex(self._current):
+      self._advance()
+    short_bytes = self._input[start:self._cursor-1]
+    padded_bytes = "0" * (32 - len(short_bytes)) + short_bytes
+    return Id(bytes.fromhex(padded_bytes))
+
+  @staticmethod
+  def _is_hex(chr):
+    return chr in "0123456789abcdefABCDEF"
 
 
 class TokenStream(object):
@@ -248,6 +280,8 @@ class TextDecoder(object):
         self._visitor.on_singleton(tokens.current._value)
       elif tokens.current.is_string():
         self._visitor.on_string(tokens.current._value.encode("utf-8"), None)
+      elif tokens.current.is_id():
+        self._visitor.on_id(tokens.current._value)
       else:
         raise AssertionError()
       tokens._advance()
@@ -429,7 +463,18 @@ class TextEncoder(_types.StackingBuilder):
     self._push(self._maybe_add_ref(ref_key, basic))
 
   def on_id(self, bytes):
-    pass
+    ivalue = uuid.UUID(bytes=bytes).int
+    if ivalue >= 2**64:
+      self._push("&%032x" % ivalue)
+    elif ivalue >= 2**32:
+      self._push("&%016x" % ivalue)
+    elif ivalue >= 2**16:
+      self._push("&%08x" % ivalue)
+    elif ivalue >= 2**8:
+      self._push("&%04x" % ivalue)
+    else:
+      assert ivalue < 2**8
+      self._push("&%x" % ivalue)
 
   def on_blob(self, value):
     pass
