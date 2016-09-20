@@ -123,7 +123,7 @@ class Tokenizer(object):
       return self._read_singleton()
     elif self._current == "$":
       return self._read_reference()
-    elif self._current in "[],{}:":
+    elif self._current in "[],{}:@()":
       char = self._current
       self._advance()
       return Punctuation(char)
@@ -216,6 +216,8 @@ class TextDecoder(object):
       return self._pre_parse_array(tokens)
     elif tokens.current.is_punctuation("{"):
       return self._pre_parse_map(tokens)
+    elif tokens.current.is_punctuation("@"):
+      return self._pre_parse_seed(tokens)
     else:
       raise SyntaxError()
 
@@ -237,6 +239,8 @@ class TextDecoder(object):
       return self._parse_array(tokens, ref_name)
     elif tokens.current.is_punctuation("{"):
       return self._parse_map(tokens, ref_name)
+    elif tokens.current.is_punctuation("@"):
+      return self._parse_seed(tokens, ref_name)
     else:
       raise SyntaxError()
 
@@ -305,6 +309,30 @@ class TextDecoder(object):
         tokens._advance()
       else:
         break
+    tokens._advance()
+
+  def _pre_parse_seed(self, tokens):
+    assert tokens.current.is_punctuation("@")
+    offset = tokens._offset
+    tokens._advance()
+    header = self._pre_parse(tokens)
+    assert tokens.current.is_punctuation("(")
+    tokens._advance()
+    length = 0
+    assert tokens.current.is_punctuation(")")
+    tokens._advance()
+    self._lengths[offset] = length
+
+  def _parse_seed(self, tokens, ref_key):
+    assert tokens.current.is_punctuation("@")
+    offset = tokens._offset
+    tokens._advance()
+    length = self._lengths[offset]
+    self._visitor.on_begin_seed(length, ref_key)
+    self._parse(tokens)
+    assert tokens.current.is_punctuation("(")
+    tokens._advance()
+    assert tokens.current.is_punctuation(")")
     tokens._advance()
 
   def _pre_parse_reference(self, tokens):
@@ -382,7 +410,14 @@ class TextEncoder(_types.StackingBuilder):
     pass
 
   def on_begin_seed(self, length, ref_key):
-    pass
+    self._schedule_end(1, self._end_seed_header, ref_key, length)
+
+  def _end_seed_header(self, total_length, ref_key, values, field_count):
+    if field_count == 0:
+      [header] = values
+      self._push(self._maybe_add_ref(ref_key, "@%s()" % header))
+    else:
+      self._schedule_end(2 * field_count, self._end_seed, ref_key, None)
 
   def on_begin_struct(self, tags, ref_key):
     pass
