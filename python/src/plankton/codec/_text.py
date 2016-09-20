@@ -88,6 +88,10 @@ class Reference(Token):
     return True
 
 
+class End(Token):
+  pass
+
+
 class Tokenizer(object):
 
   def __init__(self, input):
@@ -115,6 +119,7 @@ class Tokenizer(object):
     while self._has_more():
       yield self._read_next()
       self._skip_spaces()
+    yield End()
 
   def _read_next(self):
     if self._is_digit_start(self._current):
@@ -195,6 +200,18 @@ class TokenStream(object):
   def _advance(self):
     self._offset += 1
 
+  def _expect_punctuation(self, value):
+    if not self.current.is_punctuation(value):
+      raise SyntaxError()
+    self._advance()
+
+  def _expect_reference(self):
+    if not self.current.is_reference():
+      raise SyntaxError()
+    name = self.current._name
+    self._advance()
+    return name
+
 
 class TextDecoder(object):
 
@@ -223,7 +240,8 @@ class TextDecoder(object):
 
   def _parse(self, tokens, ref_name=None):
     if tokens.current.is_atomic():
-      assert ref_name is None
+      if not ref_name is None:
+        raise SyntaxError()
       if tokens.current.is_int():
         self._visitor.on_int(tokens.current._value)
       elif tokens.current.is_singleton():
@@ -245,9 +263,8 @@ class TextDecoder(object):
       raise SyntaxError()
 
   def _pre_parse_array(self, tokens):
-    assert tokens.current.is_punctuation("[")
     offset = tokens._offset
-    tokens._advance()
+    tokens._expect_punctuation("[")
     length = 0
     while not tokens.current.is_punctuation("]"):
       length += 1
@@ -256,16 +273,12 @@ class TextDecoder(object):
         tokens._advance()
       else:
         break
-    if not tokens.current.is_punctuation("]"):
-      raise SyntaxError()
+    tokens._expect_punctuation("]")
     self._lengths[offset] = length
-    tokens._advance()
 
   def _parse_array(self, tokens, ref_key):
-    assert tokens.current.is_punctuation("[")
-    offset = tokens._offset
-    tokens._advance()
-    length = self._lengths[offset]
+    length = self._lengths[tokens._offset]
+    tokens._expect_punctuation("[")
     self._visitor.on_begin_array(length, ref_key)
     while not tokens.current.is_punctuation("]"):
       self._parse(tokens)
@@ -273,102 +286,84 @@ class TextDecoder(object):
         tokens._advance()
       else:
         break
-    tokens._advance()
+    tokens._expect_punctuation("]")
 
   def _pre_parse_map(self, tokens):
-    assert tokens.current.is_punctuation("{")
     offset = tokens._offset
-    tokens._advance()
+    tokens._expect_punctuation("{")
     length = 0
     while not tokens.current.is_punctuation("}"):
       length += 1
       self._pre_parse(tokens)
-      assert tokens.current.is_punctuation(":")
-      tokens._advance()
+      tokens._expect_punctuation(":")
       self._pre_parse(tokens)
       if tokens.current.is_punctuation(","):
-        tokens._advance()
+        tokens._expect_punctuation(",")
       else:
         break
-    if not tokens.current.is_punctuation("}"):
-      raise SyntaxError()
+    tokens._expect_punctuation("}")
     self._lengths[offset] = length
-    tokens._advance()
 
   def _parse_map(self, tokens, ref_key):
-    assert tokens.current.is_punctuation("{")
-    offset = tokens._offset
-    tokens._advance()
-    length = self._lengths[offset]
+    length = self._lengths[tokens._offset]
+    tokens._expect_punctuation("{")
     self._visitor.on_begin_map(length, ref_key)
     while not tokens.current.is_punctuation("}"):
       self._parse(tokens)
-      tokens._advance()
+      tokens._expect_punctuation(":")
       self._parse(tokens)
       if tokens.current.is_punctuation(","):
-        tokens._advance()
+        tokens._expect_punctuation(",")
       else:
         break
-    tokens._advance()
+    tokens._expect_punctuation("}")
 
   def _pre_parse_seed(self, tokens):
-    assert tokens.current.is_punctuation("@")
     offset = tokens._offset
-    tokens._advance()
+    tokens._expect_punctuation("@")
     header = self._pre_parse(tokens)
     length = 0
-    assert tokens.current.is_punctuation("(")
-    tokens._advance()
-    while not tokens.current.is_punctuation(")"):
-      length += 1
-      self._pre_parse(tokens)
-      assert tokens.current.is_punctuation(":")
+    if tokens.current.is_punctuation("("):
       tokens._advance()
-      self._pre_parse(tokens)
-      if tokens.current.is_punctuation(","):
-        tokens._advance()
-      else:
-        break
-    if not tokens.current.is_punctuation(")"):
-      raise SyntaxError()
-    tokens._advance()
+      while not tokens.current.is_punctuation(")"):
+        length += 1
+        self._pre_parse(tokens)
+        tokens._expect_punctuation(":")
+        self._pre_parse(tokens)
+        if tokens.current.is_punctuation(","):
+          tokens._expect_punctuation(",")
+        else:
+          break
+      tokens._expect_punctuation(")")
     self._lengths[offset] = length
 
   def _parse_seed(self, tokens, ref_key):
-    assert tokens.current.is_punctuation("@")
-    offset = tokens._offset
-    tokens._advance()
-    length = self._lengths[offset]
+    length = self._lengths[tokens._offset]
+    tokens._expect_punctuation("@")
     self._visitor.on_begin_seed(length, ref_key)
     self._parse(tokens)
-    assert tokens.current.is_punctuation("(")
-    tokens._advance()
-    while not tokens.current.is_punctuation(")"):
-      self._parse(tokens)
-      assert tokens.current.is_punctuation(":")
+    if tokens.current.is_punctuation("("):
       tokens._advance()
-      self._parse(tokens)
-      if tokens.current.is_punctuation(","):
-        tokens._advance()
-      else:
-        break
-    if not tokens.current.is_punctuation(")"):
-      raise SyntaxError()
-    tokens._advance()
+      while not tokens.current.is_punctuation(")"):
+        self._parse(tokens)
+        tokens._expect_punctuation(":")
+        self._parse(tokens)
+        if tokens.current.is_punctuation(","):
+          tokens._expect_punctuation(",")
+        else:
+          break
+      tokens._expect_punctuation(")")
 
   def _pre_parse_reference(self, tokens):
-    assert tokens.current.is_reference()
-    tokens._advance()
+    tokens._expect_reference()
     if tokens.current.is_punctuation(":"):
-      tokens._advance()
+      tokens._expect_punctuation(":")
       self._pre_parse(tokens)
 
   def _parse_reference(self, tokens):
-    assert tokens.current.is_reference()
-    name = tokens.current._name
-    tokens._advance()
+    name = tokens._expect_reference()
     if tokens.current.is_punctuation(":"):
-      tokens._advance()
+      tokens._expect_punctuation(":")
       self._parse(tokens, name)
     else:
       self._visitor.on_get_ref(name)
@@ -430,7 +425,8 @@ class TextEncoder(_types.StackingBuilder):
 
   def _end_map(self, total_length, ref_key, values, unused):
     pairs = ["%s: %s" % (values[i], values[i+1]) for i in range(0, total_length, 2)]
-    self._push(self._maybe_add_ref(ref_key, "{%s}" % (", ".join(pairs))))
+    basic = "{%s}" % (", ".join(pairs))
+    self._push(self._maybe_add_ref(ref_key, basic))
 
   def on_id(self, bytes):
     pass
@@ -444,7 +440,7 @@ class TextEncoder(_types.StackingBuilder):
   def _end_seed_header(self, total_length, ref_key, values, field_count):
     if field_count == 0:
       [header] = values
-      self._push(self._maybe_add_ref(ref_key, "@%s()" % header))
+      self._push(self._maybe_add_ref(ref_key, "@%s" % header))
     else:
       self._schedule_end(2 * field_count, self._end_seed, ref_key, values)
 

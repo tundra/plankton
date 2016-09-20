@@ -6,4 +6,10 @@ yield seed:0 int:10
   08 0a
 
 ----- tton -----
+@10
+
+
+----- tton -----
+% canonical: false
+
 @10()
