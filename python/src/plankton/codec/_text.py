@@ -246,7 +246,7 @@ class Tokenizer(object):
     if marker == "x[":
       data = bytearray.fromhex(result)
     else:
-      data = base64.b64decode(result.replace("\n", ""))
+      data = base64.b64decode(result.encode("ascii"))
     return Blob(data)
 
   def _read_string(self):
