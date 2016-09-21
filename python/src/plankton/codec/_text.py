@@ -1,20 +1,36 @@
 import itertools
 import uuid
+import base64
 
 from plankton.codec import _types
 
 
 __all__ = [
+  "SyntaxError",
   "TextDecoder",
   "TextEncoder",
 ]
 
 
 class SyntaxError(Exception):
-  pass
+
+  def __init__(self, token):
+    self._token = token
+
+  @property
+  def offset(self):
+    return self._token._offset
+
+  @property
+  def token(self):
+    return self._token
+
 
 
 class Token(object):
+
+  def __init__(self, offset):
+    self._offset = offset
 
   def is_atomic(self):
     return False
@@ -25,7 +41,10 @@ class Token(object):
   def is_string(self):
     return False
 
-  def is_singleton(self):
+  def is_blob(self):
+    return False
+
+  def is_marker(self, type=None):
     return False
 
   def is_id(self):
@@ -62,7 +81,7 @@ class String(Token):
     return True
 
 
-class Singleton(Token):
+class Blob(Token):
 
   def __init__(self, value):
     self._value = value
@@ -70,8 +89,21 @@ class Singleton(Token):
   def is_atomic(self):
     return True
 
-  def is_singleton(self):
+  def is_blob(self):
     return True
+
+
+class Marker(Token):
+
+  def __init__(self, offset, value):
+    super(Marker, self).__init__(offset)
+    self._value = value
+
+  def is_marker(self, type=None):
+    return (type is None) or (type == self._value)
+
+  def __str__(self):
+    return "%%%s" % self._value
 
 
 class Id(Token):
@@ -135,13 +167,13 @@ class Tokenizer(object):
     while self._has_more():
       yield self._read_next()
       self._skip_spaces()
-    yield End()
+    yield End(len(self._input))
 
   def _read_next(self):
     if self._is_digit_start(self._current):
       return self._read_number()
     elif self._current == "%":
-      return self._read_singleton()
+      return self._read_marker()
     elif self._current == "$":
       return self._read_reference()
     elif self._current == "&":
@@ -170,20 +202,33 @@ class Tokenizer(object):
   def _is_digit_part(cls, chr):
     return cls._is_digit_start(chr) or chr == "_"
 
-  def _read_singleton(self):
+  def _read_marker(self):
     assert self._current == "%"
+    offset = self._cursor
     self._advance()
-    if not self._has_more():
-      raise SyntaxError()
-    if self._current == "n":
+    while self._has_more() and self._current.isalnum():
       self._advance()
-      return Singleton(None)
-    elif self._current == "t":
+    if self._has_more() and self._current in "[{":
       self._advance()
-      return Singleton(True)
-    elif self._current == "f":
+    result = self._input[offset:self._cursor-1]
+    if result in ["[", "x[", "u["]:
+      return self._read_blob(result, offset)
+    elif result in ["n", "t", "f"]:
+      return Marker(offset, result)
+    else:
+      raise SyntaxError(Marker(offset, result))
+
+  def _read_blob(self, marker, offset):
+    start = self._cursor
+    while self._has_more() and self._current != "]":
       self._advance()
-      return Singleton(False)
+    result = self._input[start-1:self._cursor-1]
+    self._advance()
+    if marker == "x[":
+      data = bytearray.fromhex(result)
+    else:
+      data = base64.b64decode(result.replace("\n", ""))
+    return Blob(data)
 
   def _read_string(self):
     assert self._current == '"'
@@ -234,15 +279,23 @@ class TokenStream(object):
 
   def _expect_punctuation(self, value):
     if not self.current.is_punctuation(value):
-      raise SyntaxError()
+      self._syntax_error()
     self._advance()
 
   def _expect_reference(self):
     if not self.current.is_reference():
-      raise SyntaxError()
+      self._syntax_error()
     name = self.current._name
     self._advance()
     return name
+
+  def _expect_marker(self, type=None):
+    if not self.current.is_marker(type):
+      self._syntax_error()
+    self._advance()
+
+  def _syntax_error(self):
+    raise SyntaxError(self.current)
 
 
 class TextDecoder(object):
@@ -267,19 +320,21 @@ class TextDecoder(object):
       return self._pre_parse_map(tokens)
     elif tokens.current.is_punctuation("@"):
       return self._pre_parse_seed(tokens)
+    elif tokens.current.is_marker():
+      return self._pre_parse_marker(tokens)
     else:
       raise SyntaxError()
 
   def _parse(self, tokens, ref_name=None):
     if tokens.current.is_atomic():
       if not ref_name is None:
-        raise SyntaxError()
+        tokens._syntax_error()
       if tokens.current.is_int():
         self._visitor.on_int(tokens.current._value)
-      elif tokens.current.is_singleton():
-        self._visitor.on_singleton(tokens.current._value)
       elif tokens.current.is_string():
         self._visitor.on_string(tokens.current._value.encode("utf-8"), None)
+      elif tokens.current.is_blob():
+        self._visitor.on_blob(tokens.current._value)
       elif tokens.current.is_id():
         self._visitor.on_id(tokens.current._value)
       else:
@@ -293,8 +348,10 @@ class TextDecoder(object):
       return self._parse_map(tokens, ref_name)
     elif tokens.current.is_punctuation("@"):
       return self._parse_seed(tokens, ref_name)
+    elif tokens.current.is_marker():
+      return self._parse_marker(tokens)
     else:
-      raise SyntaxError()
+      tokens._syntax_error()
 
   def _pre_parse_array(self, tokens):
     offset = tokens._offset
@@ -402,6 +459,29 @@ class TextDecoder(object):
     else:
       self._visitor.on_get_ref(name)
 
+  def _pre_parse_marker(self, tokens):
+    if tokens.current.is_marker("n"):
+      tokens._expect_marker("n")
+    elif tokens.current.is_marker("t"):
+      tokens._expect_marker("t")
+    elif tokens.current.is_marker("f"):
+      tokens._expect_marker("f")
+    else:
+      tokens._syntax_error()
+
+  def _parse_marker(self, tokens):
+    if tokens.current.is_marker("n"):
+      tokens._expect_marker("n")
+      self._visitor.on_singleton(None)
+    elif tokens.current.is_marker("t"):
+      tokens._expect_marker("t")
+      self._visitor.on_singleton(True)
+    elif tokens.current.is_marker("f"):
+      tokens._expect_marker("f")
+      self._visitor.on_singleton(False)
+    else:
+      assert False
+
 
 # Hey no problem, I have so much time I don't mind wasting tons of it on
 # unforced incompatibilities between python versions. It's my pleasure.
@@ -477,7 +557,8 @@ class TextEncoder(_types.StackingBuilder):
       self._push("&%x" % ivalue)
 
   def on_blob(self, value):
-    pass
+    encoded = base64.b64encode(value)
+    self._push("%%[%s]" % encoded.decode("ascii"))
 
   def on_begin_seed(self, length, ref_key):
     self._schedule_end(1, self._end_seed_header, ref_key, length)

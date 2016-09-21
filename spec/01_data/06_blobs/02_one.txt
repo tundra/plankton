@@ -3,3 +3,16 @@ yield blob:ab
 
 ----- bton -----
 48 01 ab
+
+----- tton -----
+%[qw==]
+
+----- tton -----
+% canonical: false
+
+%u[qw==]
+
+----- tton -----
+% canonical: false
+
+%x[ab]

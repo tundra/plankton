@@ -3,3 +3,16 @@ yield blob:abcd
 
 ----- bton -----
 48 02 ab cd
+
+----- tton -----
+%[q80=]
+
+----- tton -----
+% canonical: false
+
+%u[q80=]
+
+----- tton -----
+% canonical: false
+
+%x[abcd]

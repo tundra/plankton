@@ -3,3 +3,16 @@ yield blob:abcdef
 
 ----- bton -----
 48 03 ab cd ef
+
+----- tton -----
+%[q83v]
+
+----- tton -----
+% canonical: false
+
+%u[q83v]
+
+----- tton -----
+% canonical: false
+
+%x[abcdef]

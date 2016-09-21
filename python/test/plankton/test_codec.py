@@ -285,7 +285,11 @@ class AbstractCodecTest(unittest.TestCase):
     """
     data = self.test_case.data
     for tton in self.test_case.ttons:
-      decoded = plankton.codec.decode_text(tton.source)
+      try:
+        decoded = plankton.codec.decode_text(tton.source)
+      except plankton.codec.SyntaxError as se:
+        print("### Token: [%s]" % se.token)
+        raise se
       self.assertStructurallyEqual(data, decoded)
 
   def test_data_to_canonical_tton(self):

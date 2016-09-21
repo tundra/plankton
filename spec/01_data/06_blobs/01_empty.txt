@@ -3,3 +3,18 @@ yield blob:
 
 ----- bton -----
 48 00
+
+----- tton -----
+% canonical: false
+
+%[]
+
+----- tton -----
+% canonical: false
+
+%u[]
+
+----- tton -----
+% canonical: false
+
+%x[]
