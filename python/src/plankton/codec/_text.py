@@ -213,7 +213,7 @@ class Tokenizer(object):
     result = self._input[offset:self._cursor-1]
     if result in ["[", "x[", "u["]:
       return self._read_blob(result, offset)
-    elif result in ["n", "t", "f"]:
+    elif result in ["n", "t", "f", "{"]:
       return Marker(offset, result)
     else:
       raise SyntaxError(Marker(offset, result))
@@ -294,6 +294,13 @@ class TokenStream(object):
       self._syntax_error()
     self._advance()
 
+  def _expect_int(self):
+    if not self.current.is_int():
+      self._syntax_error()
+    value = self.current._value
+    self._advance()
+    return value
+
   def _syntax_error(self):
     raise SyntaxError(self.current)
 
@@ -325,9 +332,9 @@ class TextDecoder(object):
     else:
       raise SyntaxError()
 
-  def _parse(self, tokens, ref_name=None):
+  def _parse(self, tokens, ref_key=None):
     if tokens.current.is_atomic():
-      if not ref_name is None:
+      if not ref_key is None:
         tokens._syntax_error()
       if tokens.current.is_int():
         self._visitor.on_int(tokens.current._value)
@@ -343,13 +350,13 @@ class TextDecoder(object):
     elif tokens.current.is_reference():
       return self._parse_reference(tokens)
     elif tokens.current.is_punctuation("["):
-      return self._parse_array(tokens, ref_name)
+      return self._parse_array(tokens, ref_key)
     elif tokens.current.is_punctuation("{"):
-      return self._parse_map(tokens, ref_name)
+      return self._parse_map(tokens, ref_key)
     elif tokens.current.is_punctuation("@"):
-      return self._parse_seed(tokens, ref_name)
+      return self._parse_seed(tokens, ref_key)
     elif tokens.current.is_marker():
-      return self._parse_marker(tokens)
+      return self._parse_marker(tokens, ref_key)
     else:
       tokens._syntax_error()
 
@@ -466,10 +473,12 @@ class TextDecoder(object):
       tokens._expect_marker("t")
     elif tokens.current.is_marker("f"):
       tokens._expect_marker("f")
+    elif tokens.current.is_marker("{"):
+      self._pre_parse_struct(tokens)
     else:
       tokens._syntax_error()
 
-  def _parse_marker(self, tokens):
+  def _parse_marker(self, tokens, ref_key):
     if tokens.current.is_marker("n"):
       tokens._expect_marker("n")
       self._visitor.on_singleton(None)
@@ -479,8 +488,40 @@ class TextDecoder(object):
     elif tokens.current.is_marker("f"):
       tokens._expect_marker("f")
       self._visitor.on_singleton(False)
+    elif tokens.current.is_marker("{"):
+      self._parse_struct(tokens, ref_key)
     else:
       assert False
+
+  def _pre_parse_struct(self, tokens):
+    offset = tokens._offset
+    tokens._expect_marker("{")
+    tags = []
+    while not tokens.current.is_punctuation("}"):
+      tag = tokens._expect_int()
+      tags.append(tag)
+      tokens._expect_punctuation(":")
+      self._pre_parse(tokens)
+      if tokens.current.is_punctuation(","):
+        tokens._expect_punctuation(",")
+      else:
+        break
+    tokens._expect_punctuation("}")
+    self._lengths[offset] = tags
+
+  def _parse_struct(self, tokens, ref_key):
+    tags = self._lengths[tokens._offset]
+    tokens._expect_marker("{")
+    self._visitor.on_begin_struct(tags, ref_key)
+    while not tokens.current.is_punctuation("}"):
+      tokens._expect_int()
+      tokens._expect_punctuation(":")
+      self._parse(tokens)
+      if tokens.current.is_punctuation(","):
+        tokens._expect_punctuation(",")
+      else:
+        break
+    tokens._expect_punctuation("}")
 
 
 # Hey no problem, I have so much time I don't mind wasting tons of it on
@@ -576,7 +617,14 @@ class TextEncoder(_types.StackingBuilder):
     self._push(self._maybe_add_ref(ref_key, "@%s(%s)" % (header, ", ".join(pairs))))
 
   def on_begin_struct(self, tags, ref_key):
-    pass
+    if len(tags) == 0:
+      self._push(self._maybe_add_ref(ref_key, "%{}"))
+    else:
+      self._schedule_end(len(tags), self._end_struct, ref_key, tags)
+
+  def _end_struct(self, total_length, ref_key, values, tags):
+    pairs = ["%i: %s" % (tags[i], values[i]) for i in range(0, len(tags))]
+    self._push(self._maybe_add_ref(ref_key, "%%{%s}" % ", ".join(pairs)))
 
   def on_get_ref(self, key):
     self._push("$%s" % key)
