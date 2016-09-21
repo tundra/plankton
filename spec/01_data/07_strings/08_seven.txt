@@ -5,4 +5,9 @@ yield str:abcdefg
 57 61 62 63 64 65 66 67
 
 ----- tton -----
+abcdefg
+
+----- tton -----
+% canonical: false
+
 "abcdefg"

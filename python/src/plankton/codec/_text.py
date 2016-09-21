@@ -140,6 +140,23 @@ class End(Token):
   pass
 
 
+_SPECIAL_PLAINS = "._"
+
+
+def is_plain_start(str):
+  for chr in str:
+    if (not chr.isalpha()) and not (chr in _SPECIAL_PLAINS):
+      return False
+  return True
+
+
+def is_plain_part(str):
+  for chr in str:
+    if (not chr.isalnum()) and not (chr in _SPECIAL_PLAINS):
+      return False
+  return True
+
+
 class Tokenizer(object):
 
   def __init__(self, input):
@@ -184,6 +201,8 @@ class Tokenizer(object):
       return Punctuation(char)
     elif self._current == '"':
       return self._read_string()
+    elif is_plain_start(self._current):
+      return self._read_plain()
     else:
       raise SyntaxError(self._current)
 
@@ -240,11 +259,19 @@ class Tokenizer(object):
     self._advance()
     return String(result)
 
+  def _read_plain(self):
+    assert is_plain_start(self._current)
+    start = self._cursor
+    while self._has_more() and is_plain_part(self._current):
+      self._advance()
+    result = self._input[start-1:self._cursor-1]
+    return String(result)
+
   def _read_reference(self):
     assert self._current == "$"
     start = self._cursor
     self._advance()
-    while self._has_more() and self._current.isalnum():
+    while self._has_more() and is_plain_part(self._current):
       self._advance()
     result = self._input[start:self._cursor-1]
     return Reference(result)
@@ -561,7 +588,12 @@ class TextEncoder(_types.StackingBuilder):
       self._push("%f")
 
   def on_string(self, bytes, encoding):
-    self._push('"%s"' % bytes.decode(self._default_string_encoding))
+    str = bytes.decode(self._default_string_encoding)
+    if len(str) > 0:
+      if is_plain_start(str[0]) and is_plain_part(str):
+        self._push(str)
+        return
+    self._push('"%s"' % str)
 
   def on_begin_array(self, length, ref_key):
     if length == 0:

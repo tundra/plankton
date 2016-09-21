@@ -5,4 +5,9 @@ yield str:a
 51 61
 
 ----- tton -----
+a
+
+----- tton -----
+% canonical: false
+
 "a"

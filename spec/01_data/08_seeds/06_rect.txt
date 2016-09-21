@@ -22,4 +22,9 @@ yield seed:2 str:geom.Rect str:top_left $topleft str:bottom_right $bottomright
         08 78
 
 ----- tton -----
+@geom.Rect(top_left: @geom.Point(x: 10, y: 20), bottom_right: @geom.Point(x: 110, y: 120))
+
+----- tton -----
+% canonical: false
+
 @"geom.Rect"("top_left": @"geom.Point"("x": 10, "y": 20), "bottom_right": @"geom.Point"("x": 110, "y": 120))
