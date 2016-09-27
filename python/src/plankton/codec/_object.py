@@ -88,6 +88,9 @@ class ObjectBuilder(_types.StackingBuilder):
   def on_int(self, value):
     self._push(value)
 
+  def on_float(self, value):
+    self._push(value)
+
   def on_singleton(self, value):
     self._push(value)
 
@@ -256,6 +259,8 @@ class AbstractObjectDecoder(object):
       return self._visitor.on_singleton(value)
     elif isinstance(value, _INT_TYPES):
       return self._visitor.on_int(value)
+    elif isinstance(value, float):
+      return self._visitor.on_float(value)
     elif isinstance(value, _BASESTRING_TYPE):
       return self._visitor.on_string(value.encode("utf-8"), None)
     elif self._classifier.is_array(value):

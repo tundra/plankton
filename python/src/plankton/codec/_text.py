@@ -38,6 +38,9 @@ class Token(object):
   def is_int(self):
     return False
 
+  def is_float(self):
+    return False
+
   def is_string(self):
     return False
 
@@ -66,6 +69,18 @@ class Number(Token):
     return True
 
   def is_int(self):
+    return True
+
+
+class Float(Token):
+
+  def __init__(self, value):
+    self._value = value
+
+  def is_atomic(self):
+    return True
+
+  def is_float(self):
     return True
 
 
@@ -211,7 +226,10 @@ class Tokenizer(object):
     while self._has_more() and self._is_digit_part(self._current):
       self._advance()
     result = self._input[start-1:self._cursor-1].replace("_", "")
-    return Number(int(result))
+    if "." in result:
+      return Float(float(result))
+    else:
+      return Number(int(result))
 
   @staticmethod
   def _is_digit_start(chr):
@@ -219,7 +237,7 @@ class Tokenizer(object):
 
   @classmethod
   def _is_digit_part(cls, chr):
-    return cls._is_digit_start(chr) or chr == "_"
+    return cls._is_digit_start(chr) or chr in "_."
 
   def _read_marker(self):
     assert self._current == "%"
@@ -365,6 +383,8 @@ class TextDecoder(object):
         tokens._syntax_error()
       if tokens.current.is_int():
         self._visitor.on_int(tokens.current._value)
+      elif tokens.current.is_float():
+        self._visitor.on_float(tokens.current._value)
       elif tokens.current.is_string():
         self._visitor.on_string(tokens.current._value.encode("utf-8"), None)
       elif tokens.current.is_blob():
@@ -577,6 +597,9 @@ class TextEncoder(_types.StackingBuilder):
 
   def on_int(self, value):
     self._push(str(value))
+
+  def on_float(self, value):
+    self._push(repr(value))
 
   def on_singleton(self, value):
     if value is None:

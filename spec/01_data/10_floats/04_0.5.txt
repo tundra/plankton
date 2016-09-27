@@ -1,0 +1,13 @@
+----- data -----
+yield float:0.5
+
+----- bton -----
+1a 00 00 00 3f
+
+----- bton -----
+% canonical: false
+
+1b 00 00 00 00 00 00 e0 3f
+
+----- tton -----
+0.5

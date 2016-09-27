@@ -179,6 +179,8 @@ class TestCase(object):
     (instr, arg) = word.split(":")
     if instr == "int":
       return int(arg)
+    elif instr == "float":
+      return float(arg)
     elif instr == "id":
       return uuid.UUID(arg.zfill(32))
     elif instr == "blob":

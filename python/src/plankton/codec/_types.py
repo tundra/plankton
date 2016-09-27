@@ -37,6 +37,10 @@ class Visitor(object):
     pass
 
   @abstractmethod
+  def on_float(self, value):
+    pass
+
+  @abstractmethod
   def on_singleton(self, value):
     pass
 

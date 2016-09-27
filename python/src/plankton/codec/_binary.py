@@ -5,6 +5,7 @@ data in the binary format.
 
 
 import uuid
+import struct
 
 from plankton.codec import _types
 
@@ -27,6 +28,9 @@ ID_16_TAG = 0x14
 ID_32_TAG = 0x15
 ID_64_TAG = 0x16
 ID_128_TAG = 0x17
+
+FLOAT_32_TAG = 0x1a
+FLOAT_64_TAG = 0x1b
 
 ARRAY_0_TAG = 0x20
 ARRAY_1_TAG = 0x21
@@ -58,9 +62,6 @@ SEED_2_TAG = 0x62
 SEED_3_TAG = 0x63
 SEED_N_TAG = 0x68
 
-ADD_REF_TAG = 0xa0
-GET_REF_TAG = 0xa1
-
 STRUCT_LINEAR_0_TAG = 0x80
 STRUCT_LINEAR_1_TAG = 0x81
 STRUCT_LINEAR_2_TAG = 0x82
@@ -70,6 +71,9 @@ STRUCT_LINEAR_5_TAG = 0x85
 STRUCT_LINEAR_6_TAG = 0x86
 STRUCT_LINEAR_7_TAG = 0x87
 STRUCT_N_TAG = 0x88
+
+ADD_REF_TAG = 0xa0
+GET_REF_TAG = 0xa1
 
 
 _INSTRUCTION_DECODERS = [None] * 256
@@ -200,6 +204,18 @@ class BinaryDecoder(object):
   def _id_128(self, ref_key):
     data = self._advance_and_read_block(16)
     return self._visitor.on_id(data)
+
+  @decoder(FLOAT_32_TAG)
+  def _float_32(self, ref_key):
+    data = self._advance_and_read_block(4)
+    (value,) = struct.unpack("<f", data)
+    return self._visitor.on_float(value)
+
+  @decoder(FLOAT_64_TAG)
+  def _float_64(self, ref_key):
+    data = self._advance_and_read_block(8)
+    (value,) = struct.unpack("<d", data)
+    return self._visitor.on_float(value)
 
   @decoder(ARRAY_0_TAG)
   def _array_0(self, ref_key):
@@ -483,6 +499,15 @@ class BinaryEncoder(_types.Visitor):
       self._write_tag(INT_P_TAG)
       self._write_unsigned_int(value)
 
+  def on_float(self, value):
+    bytes = self._encode_float(value)
+    if len(bytes) == 4:
+      self._write_tag(FLOAT_32_TAG)
+    else:
+      assert len(bytes) == 8
+      self._write_tag(FLOAT_64_TAG)
+    self._write_bytes(bytes)
+
   def on_singleton(self, value):
     if value is None:
       self._write_tag(SINGLETON_NULL_TAG)
@@ -659,3 +684,22 @@ class BinaryEncoder(_types.Visitor):
 
   def _write_tag(self, byte):
     self._write_byte(byte)
+
+  @staticmethod
+  def _encode_float(value):
+    if value == 0.0:
+      # Zero is a special case so we hardcode that.
+      return b"\x00\x00\x00\x00"
+    double_packed = struct.pack('<d', value)
+    # Unpack the double and inspect the components.
+    (double_raw,) = struct.unpack('Q', double_packed)
+    significand = double_raw & 0xFFFFFFFFFFFFF
+    biased_exponent = (double_raw & 0x7FF0000000000000) >> 52
+    exponent = biased_exponent - 1023
+    if (-126 <= exponent) and (exponent <= 127) and ((significand & 0x000001FFFFFFF) == 0):
+      # If the exponent and significand fit within what a single precision float
+      # provides we encode it as that.
+      return struct.pack("<f", value)
+    else:
+      # Otherwise we need the full double precision representation.
+      return double_packed
