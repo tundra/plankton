@@ -7,6 +7,7 @@ import os.path
 import re
 import unittest
 import uuid
+import struct
 
 import plankton.codec
 
@@ -403,10 +404,12 @@ class AbstractCodecTest(unittest.TestCase):
       if not isinstance(b, float):
         return False
 
-      if math.isnan(a):
-        return math.isnan(b)
-      else:
-        return a == b
+      # Float comparison is tricky and magical and what we're really after is
+      # whether the two values are *exactly* the same. So we compare the binary
+      # representation instead of the values.
+      a_bytes = struct.pack("<d", a)
+      b_bytes = struct.pack("<d", b)
+      return a_bytes == b_bytes
 
     else:
       return a == b
