@@ -1,13 +1,12 @@
 from collections import OrderedDict
-import glob
+import io
 import itertools
+import math
 import os
 import os.path
 import re
 import unittest
 import uuid
-import io
-import pprint
 
 import plankton.codec
 
@@ -399,6 +398,15 @@ class AbstractCodecTest(unittest.TestCase):
           return False
 
       return True
+
+    elif isinstance(a, float):
+      if not isinstance(b, float):
+        return False
+
+      if math.isnan(a):
+        return math.isnan(b)
+      else:
+        return a == b
 
     else:
       return a == b

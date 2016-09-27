@@ -1,4 +1,5 @@
 import unittest
+import math
 
 import plankton.codec
 from plankton.codec import _binary
@@ -23,6 +24,11 @@ class FloatTest(unittest.TestCase):
     self.assertFalse(is_single_precision(0x1000001))
     self.assertTrue(is_single_precision(-0x1000000))
     self.assertFalse(is_single_precision(-0x1000001))
+
+  def test_non_finite(self):
+    self.assertTrue(is_single_precision(float("inf")))
+    self.assertTrue(is_single_precision(-float("inf")))
+    self.assertTrue(is_single_precision(float("nan")))
 
   def test_decimals(self):
     self.assertTrue(is_single_precision(0.5))

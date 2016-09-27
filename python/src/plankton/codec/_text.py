@@ -1,6 +1,7 @@
-import itertools
-import uuid
 import base64
+import itertools
+import math
+import uuid
 
 from plankton.codec import _types
 
@@ -24,7 +25,6 @@ class SyntaxError(Exception):
   @property
   def token(self):
     return self._token
-
 
 
 class Token(object):
@@ -243,14 +243,14 @@ class Tokenizer(object):
     assert self._current == "%"
     offset = self._cursor
     self._advance()
-    while self._has_more() and self._current.isalnum():
+    while self._has_more() and is_plain_part(self._current):
       self._advance()
     if self._has_more() and self._current in "[{":
       self._advance()
     result = self._input[offset:self._cursor-1]
     if result in ["[", "x[", "u["]:
       return self._read_blob(result, offset)
-    elif result in ["n", "t", "f", "{"]:
+    elif result in ["n", "t", "f", "{", "infinity", "neg_infinity", "nan"]:
       return Marker(offset, result)
     else:
       raise SyntaxError(Marker(offset, result))
@@ -348,6 +348,10 @@ class TokenStream(object):
 
   def _syntax_error(self):
     raise SyntaxError(self.current)
+
+
+_INFINITY = float("inf")
+_NAN = float("nan")
 
 
 class TextDecoder(object):
@@ -520,6 +524,12 @@ class TextDecoder(object):
       tokens._expect_marker("t")
     elif tokens.current.is_marker("f"):
       tokens._expect_marker("f")
+    elif tokens.current.is_marker("infinity"):
+      tokens._expect_marker("infinity")
+    elif tokens.current.is_marker("neg_infinity"):
+      tokens._expect_marker("neg_infinity")
+    elif tokens.current.is_marker("nan"):
+      tokens._expect_marker("nan")
     elif tokens.current.is_marker("{"):
       self._pre_parse_struct(tokens)
     else:
@@ -535,6 +545,15 @@ class TextDecoder(object):
     elif tokens.current.is_marker("f"):
       tokens._expect_marker("f")
       self._visitor.on_singleton(False)
+    elif tokens.current.is_marker("infinity"):
+      tokens._expect_marker("infinity")
+      self._visitor.on_float(_INFINITY)
+    elif tokens.current.is_marker("neg_infinity"):
+      tokens._expect_marker("neg_infinity")
+      self._visitor.on_float(-_INFINITY)
+    elif tokens.current.is_marker("nan"):
+      tokens._expect_marker("nan")
+      self._visitor.on_float(_NAN)
     elif tokens.current.is_marker("{"):
       self._parse_struct(tokens, ref_key)
     else:
@@ -599,7 +618,15 @@ class TextEncoder(_types.StackingBuilder):
     self._push(str(value))
 
   def on_float(self, value):
-    self._push(repr(value))
+    if math.isinf(value):
+      if value > 0:
+        self._push("%infinity")
+      else:
+        self._push("%neg_infinity")
+    elif math.isnan(value):
+      self._push("%nan")
+    else:
+      self._push(repr(value))
 
   def on_singleton(self, value):
     if value is None:

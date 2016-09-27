@@ -4,8 +4,9 @@ data in the binary format.
 """
 
 
-import uuid
+import math
 import struct
+import uuid
 
 from plankton.codec import _types
 
@@ -687,9 +688,8 @@ class BinaryEncoder(_types.Visitor):
 
   @staticmethod
   def _encode_float(value):
-    if value == 0.0:
-      # Zero is a special case so we hardcode that.
-      return b"\x00\x00\x00\x00"
+    if value == 0.0 or math.isinf(value) or math.isnan(value):
+      return struct.pack("<f", value)
     double_packed = struct.pack('<d', value)
     # Unpack the double and inspect the components.
     (double_raw,) = struct.unpack('Q', double_packed)

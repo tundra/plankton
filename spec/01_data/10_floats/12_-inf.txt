@@ -1,0 +1,13 @@
+----- data -----
+yield float:-inf
+
+----- bton -----
+1a 00 00 80 ff
+
+----- bton -----
+% canonical: false
+
+1b 00 00 00 00 00 00 f0 ff
+
+----- tton -----
+%neg_infinity
