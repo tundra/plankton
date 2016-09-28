@@ -2,6 +2,11 @@
 yield int:3
 
 ----- bton -----
+03
+
+----- bton -----
+% canonical: false
+
 08 03
 
 ----- tton -----

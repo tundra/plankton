@@ -17,9 +17,14 @@ __all__ = ["BinaryDecoder", "BinaryEncoder"]
 INT_0_TAG = 0x00
 INT_1_TAG = 0x01
 INT_2_TAG = 0x02
+INT_3_TAG = 0x03
+INT_4_TAG = 0x04
+INT_5_TAG = 0x05
 INT_P_TAG = 0x08
 INT_M_TAG = 0x09
 INT_M1_TAG = 0x0f
+INT_M2_TAG = 0x0e
+INT_M3_TAG = 0x0d
 
 SINGLETON_NULL_TAG = 0x10
 SINGLETON_TRUE_TAG = 0x11
@@ -151,6 +156,16 @@ class BinaryDecoder(object):
     self._advance()
     return self._visitor.on_int(-1)
 
+  @decoder(INT_M2_TAG)
+  def _int_m2(self, ref_key):
+    self._advance()
+    return self._visitor.on_int(-2)
+
+  @decoder(INT_M3_TAG)
+  def _int_m3(self, ref_key):
+    self._advance()
+    return self._visitor.on_int(-3)
+
   @decoder(INT_0_TAG)
   def _int_0(self, ref_key):
     self._advance()
@@ -165,6 +180,21 @@ class BinaryDecoder(object):
   def _int_2(self, ref_key):
     self._advance()
     return self._visitor.on_int(2)
+
+  @decoder(INT_3_TAG)
+  def _int_3(self, ref_key):
+    self._advance()
+    return self._visitor.on_int(3)
+
+  @decoder(INT_4_TAG)
+  def _int_4(self, ref_key):
+    self._advance()
+    return self._visitor.on_int(4)
+
+  @decoder(INT_5_TAG)
+  def _int_5(self, ref_key):
+    self._advance()
+    return self._visitor.on_int(5)
 
   @decoder(INT_M_TAG)
   def _int_m(self, ref_key):
@@ -491,11 +521,21 @@ class BinaryEncoder(_types.Visitor):
       self._write_tag(INT_1_TAG)
     elif value == 2:
       self._write_tag(INT_2_TAG)
+    elif value == 3:
+      self._write_tag(INT_3_TAG)
+    elif value == 4:
+      self._write_tag(INT_4_TAG)
+    elif value == 5:
+      self._write_tag(INT_5_TAG)
     elif value == -1:
       self._write_tag(INT_M1_TAG)
+    elif value == -2:
+      self._write_tag(INT_M2_TAG)
+    elif value == -3:
+      self._write_tag(INT_M3_TAG)
     elif value < 0:
       self._write_tag(INT_M_TAG)
-      self._write_unsigned_int(-(value+1))
+      self._write_unsigned_int(-(value + 1))
     else:
       self._write_tag(INT_P_TAG)
       self._write_unsigned_int(value)

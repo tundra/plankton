@@ -4,5 +4,10 @@ yield int:1
 ----- bton -----
 01
 
+----- bton -----
+% canonical: false
+
+08 01
+
 ----- tton -----
 1

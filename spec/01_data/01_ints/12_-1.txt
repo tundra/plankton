@@ -4,5 +4,10 @@ yield int:-1
 ----- bton -----
 0f
 
+----- bton -----
+% canonical: false
+
+09 00
+
 ----- tton -----
 -1

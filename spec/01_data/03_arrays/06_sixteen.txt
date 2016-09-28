@@ -6,9 +6,9 @@ yield array:16 int:0 int:1 int:2 int:3 int:4 int:5 int:6 int:7 int:8 int:9 int:1
   00
   01
   02
-  08 03
-  08 04
-  08 05
+  03
+  04
+  05
   08 06
   08 07
   08 08

@@ -1,13 +1,13 @@
 ----- data -----
-yield int:2
+yield int:4
 
 ----- bton -----
-02
+04
 
 ----- bton -----
 % canonical: false
 
-08 02
+08 04
 
 ----- tton -----
-2
+4
