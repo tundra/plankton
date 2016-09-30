@@ -1,274 +1,54 @@
-from collections import OrderedDict
-import io
-import itertools
-import math
-import os
-import os.path
-import re
 import unittest
-import uuid
-import struct
 
+from test.plankton import spectest
 import plankton.codec
 
 
 def load_tests(loader, tests, pattern):
   """Called by the test framework to produce the test suite to run."""
-  suite = unittest.TestSuite()
-  data_root = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'spec')
-  assert os.path.exists(data_root)
-  test_files = []
-  absroot = os.path.abspath(data_root)
-  for (dirpath, dirnames, filenames) in os.walk(absroot):
-    for filename in filenames:
-      if filename.endswith(".txt"):
-        test_file = os.path.join(dirpath, filename)
-        test_files.append(test_file)
-  test_files.sort()
-  for test_file in test_files:
-    test_name = test_file[len(absroot)+1:]
-    test_class = _make_test_class(test_file, test_name)
-    suite.addTests(loader.loadTestsFromTestCase(test_class))
-  return suite
+  return spectest.build_test_suite(loader, tests, pattern, _make_codec_test_class)
 
 
-def _make_test_class(test_file, test_name):
+def _make_codec_test_class(test_file, test_name, spec_test):
+  if len(spec_test.datas) == 0:
+    return None
   class CodecTest(AbstractCodecTest):
     def get_test_file(self):
       return test_file
     def get_test_name(self):
       return test_name
+    def get_spec_test(self):
+      return spec_test
   CodecTest.__qualname__ = CodecTest.__name__ = "CodecTest({})".format(test_name)
   return CodecTest
 
 
-class AbstractBlock(object):
-  """Abstract superclass for blocks in test files."""
-
-  def __init__(self, config):
-    self.config = config
-
-  def is_canonical(self):
-    return self.config.get("canonical", "true").lower() == "true"
-
-
-class BtonBlock(AbstractBlock):
-  """A binary plankton block."""
-
-  def __init__(self, config, data):
-    super(BtonBlock, self).__init__(config)
-    self.data = data
-
-
-class TtonBlock(AbstractBlock):
-  """A text plankton block."""
-
-  def __init__(self, config, source):
-    super(TtonBlock, self).__init__(config)
-    self.source = source
-
-
-class NotAnAtom(Exception):
-  pass
-
-
-class TestCase(object):
-  """Holds the parsed information about a test case from data/."""
-
-  def __init__(self, config, instrs, btons, ttons):
-    self.config = config
-    self.instrs = instrs
-    self.btons = btons
-    self.ttons = ttons
-
-  @property
-  def canonical_tton(self):
-    for tton in self.ttons:
-      if tton.is_canonical():
-        return tton
-
-  @property
-  def data(self):
-    """Returns the parsed data/object this test case represents."""
-    vars = {}
-    for line in self.instrs:
-      yield_result = False
-      save_result = None
-      yield_match = re.match(r"yield (.*)", line)
-      if yield_match:
-        expr = yield_match.group(1)
-        yield_result = True
-      var_match = re.match(r"\$([a-z0-9]+) = (.*)", line)
-      if var_match:
-        save_result = var_match.group(1)
-        expr = var_match.group(2)
-      value = self._eval_composite(vars, expr, save_result)
-      if yield_result:
-        return value
-      if not save_result is None:
-        vars[save_result] = value
-
-  def _eval_composite(self, vars, expr, dest=None):
-    """Evaluates a possibly composite expression."""
-    parts = expr.strip().split(" ")
-    if len(parts) == 1:
-      try:
-        # Try parsing as an atom; may fail which is okay, there's more cases we
-        # can try below.
-        return self._eval_atom(vars, parts[0])
-      except NotAnAtom:
-        pass
-    (instr, arg) = parts[0].split(":")
-    if instr == "array":
-      count = int(arg)
-      result = []
-      if not dest is None:
-        vars[dest] = result
-      for part in parts[1:]:
-        result.append(self._eval_atom(vars, part))
-      assert count == len(result)
-      return result
-    elif instr == "map":
-      count = int(arg)
-      result = OrderedDict()
-      if not dest is None:
-        vars[dest] = result
-      for i in range(0, count):
-        key = self._eval_atom(vars, parts[1 + 2 * i])
-        value = self._eval_atom(vars, parts[2 + 2 * i])
-        result[key] = value
-      return result
-    elif instr == "seed":
-      count = int(arg)
-      header = self._eval_atom(vars, parts[1])
-      fields = OrderedDict()
-      result = plankton.codec.Seed(header, fields)
-      if not dest is None:
-        vars[dest] = result
-      for i in range(0, count):
-        field = self._eval_atom(vars, parts[2 + 2 * i])
-        value = self._eval_atom(vars, parts[3 + 2 * i])
-        fields[field] = value
-      return result
-    elif instr == "struct":
-      count = int(arg)
-      fields = []
-      result = plankton.codec.Struct(fields)
-      if not dest is None:
-        vars[dest] = result
-      for i in range(0, count):
-        tag = int(parts[1 + 2 * i])
-        value = self._eval_atom(vars, parts[2 + 2 * i])
-        fields.append((tag, value))
-      return result
-    raise Exception("Unexpected expression {}".format(expr))
-
-  def _eval_atom(self, vars, word):
-    """
-    Parses a string as an atomic expression. If we can't recognize the string as
-    a valid atom NotAnAtom is raised.
-    """
-    if word == "null":
-      return None
-    elif word == "true":
-      return True
-    elif word == "false":
-      return False
-    elif word.startswith("$"):
-      return vars[word[1:]]
-    (instr, arg) = word.split(":")
-    if instr == "int":
-      return int(arg)
-    elif instr == "float":
-      return float(arg)
-    elif instr == "id":
-      return uuid.UUID(arg.zfill(32))
-    elif instr == "blob":
-      return bytearray.fromhex(arg)
-    elif instr == "str":
-      return arg
-    else:
-      raise NotAnAtom()
-
-  @classmethod
-  def parse(cls, source):
-    """Parses an entire test case file."""
-    lines = list(cls._strip_lines(source.splitlines()))
-    offset = 0
-    blocks = {}
-    while offset < len(lines):
-      # Scan until we find a block.
-      while offset < len(lines):
-        header_match = re.match(r"---+ (.*) ---+", lines[offset])
-        offset += 1
-        if header_match:
-          header = header_match.group(1)
-          break
-      config = {}
-      while offset < len(lines):
-        config_match = re.match(r"^%\s*([\w_]+)\s*:(.*)$", lines[offset])
-        if not config_match:
-          break
-        config[config_match.group(1).strip()] = config_match.group(2).strip()
-        offset += 1
-      block_lines = []
-      while offset < len(lines) and (re.match(r"---+ (.*) ---+", lines[offset]) == None):
-        block_lines.append(lines[offset])
-        offset += 1
-      if not header in blocks:
-        blocks[header] = []
-      blocks[header].append((config, block_lines))
-    instrs = blocks["data"][0][1]
-    btons = []
-    for (config, bton_lines) in blocks["bton"]:
-      bton = bytearray.fromhex("".join(bton_lines))
-      btons.append(BtonBlock(config, bton))
-    ttons = []
-    for (config, tton_lines) in blocks.get("tton", []):
-      tton = "".join(tton_lines)
-      ttons.append(TtonBlock(config, tton))
-    return TestCase(config, instrs, btons, ttons)
-
-  @staticmethod
-  def _strip_lines(lines):
-    """Strips spaces from the given lines, skipping empty lines."""
-    for line in lines:
-      stripped = line.strip()
-      if stripped:
-        yield stripped
-
-
-def _parse_test_case(filename):
-  """Given a file name, returns the parsed test case contained in the file."""
-  with open(filename, "rt") as file:
-    source = file.read()
-  return TestCase.parse(source)
-
-
-class AbstractCodecTest(unittest.TestCase):
-  """A codec test case. Concrete tests are created by _make_test_class."""
+class AbstractCodecTest(spectest.SpecTestCase):
+  """A codec test case. Concrete tests are created by _make_codec_test_class."""
 
   def setUp(self):
-    self.test_case = _parse_test_case(self.get_test_file())
+    self.test_case = self.get_spec_test()
 
   def test_data_to_canonical_bton(self):
     """
     Test that encoding the hardcoded data yields the expected bytes.
     """
-    data = self.test_case.data
-    encoded = plankton.codec.encode_binary(data)
-    for bton in self.test_case.btons:
-      if bton.is_canonical():
-        self.assertEqual(bton.data, encoded)
+    for data_block in self.test_case.datas:
+      data = data_block.eval()
+      encoded = plankton.codec.encode_binary(data)
+      for bton in self.test_case.btons:
+        if bton.is_canonical():
+          self.assertEqual(bton.data, encoded)
 
   def test_all_btons_to_data(self):
     """
     Test that decoding the hardcoded bytes yields the expected data.
     """
-    data = self.test_case.data
-    for bton in self.test_case.btons:
-      decoded = plankton.codec.decode_binary(bton.data)
-      self.assertStructurallyEqual(data, decoded)
+    for data_block in self.test_case.datas:
+      data = data_block.eval()
+      for bton in self.test_case.btons:
+        decoded = plankton.codec.decode_binary(bton.data)
+        self.assertStructurallyEqual(data, decoded)
 
   def test_data_object_clone(self):
     """
@@ -277,139 +57,26 @@ class AbstractCodecTest(unittest.TestCase):
     """
     builder = plankton.codec.ObjectBuilder()
     decoder = plankton.codec.ObjectGraphDecoder(builder)
-    decoder.decode(self.test_case.data)
-    cloned = builder.result
-    self.assertStructurallyEqual(self.test_case.data, cloned)
+    for data_block in self.test_case.datas:
+      data = data_block.eval()
+      decoder.decode(data)
+      cloned = builder.result
+      self.assertStructurallyEqual(data, cloned)
 
   def test_all_ttons_to_data(self):
     """
     Test that decoding the tton sections yields the expected data.
     """
-    data = self.test_case.data
-    for tton in self.test_case.ttons:
-      try:
+    for data_block in self.test_case.datas:
+      data = data_block.eval()
+      for tton in self.test_case.ttons:
         decoded = plankton.codec.decode_text(tton.source)
-      except plankton.codec.SyntaxError as se:
-        print("### Token: [%s]" % se.token)
-        raise se
-      self.assertStructurallyEqual(data, decoded)
+        self.assertStructurallyEqual(data, decoded)
 
   def test_data_to_canonical_tton(self):
-    data = self.test_case.data
-    tton = self.test_case.canonical_tton
-    if tton:
-      encoded = plankton.codec.encode_text(data)
-      self.assertEqual(tton.source, encoded)
-
-  def assertStructurallyEqual(self, a, b):
-    """Assertion that fails unless a and b are structurally equal."""
-    self.assertTrue(self.is_structurally_equal(a, b, set()))
-
-  @classmethod
-  def is_structurally_equal(cls, a, b, assumed_equivs):
-    if isinstance(a, (list, tuple)):
-      # Checks that don't traverse a or b.
-      if not isinstance(b, (list, tuple)):
-        return False
-      if not len(a) == len(b):
-        return False
-
-      # Are we just assuming that the two are equal?
-      equiv = (id(a), id(b))
-      if equiv in assumed_equivs:
-        return True
-
-      # If we see these two again assume they're equal. If they're not then the
-      # traversal will detect it.
-      assumed_equivs.add(equiv)
-
-      # Traverse the array.
-      for i in range(0, len(a)):
-        if not cls.is_structurally_equal(a[i], b[i], assumed_equivs):
-          return False
-
-      return True
-
-    elif isinstance(a, dict):
-      # Checks that don't traverse a or b.
-      if not isinstance(b, dict):
-        return False
-      if not len(a) == len(b):
-        return False
-
-      # Are we just assuming that the two are equal?
-      equiv = (id(a), id(b))
-      if equiv in assumed_equivs:
-        return True
-
-      # If we see these two again assume they're equal. If they're not then the
-      # traversal will detect it.
-      assumed_equivs.add(equiv)
-
-      # Traverse the array.
-      for k in a.keys():
-        if not k in b:
-          return False
-        if not cls.is_structurally_equal(a[k], b[k], assumed_equivs):
-          return False
-
-      return True
-
-    elif isinstance(a, plankton.codec.Seed):
-      # Checks that don't traverse a or b.
-      if not isinstance(b, plankton.codec.Seed):
-        return False
-      if len(a.fields) != len(b.fields):
-        return False
-
-      equiv = (id(a), id(b))
-      if equiv in assumed_equivs:
-        return True
-
-      assumed_equivs.add(equiv)
-      if not cls.is_structurally_equal(a.header, b.header, assumed_equivs):
-        return False
-
-      for f in a.fields.keys():
-        if not f in b.fields:
-          return False
-        if not cls.is_structurally_equal(a.fields[f], b.fields[f], assumed_equivs):
-          return False
-
-      return True
-
-    elif isinstance(a, plankton.codec.Struct):
-      # Checks that don't traverse a or b.
-      if not isinstance(b, plankton.codec.Struct):
-        return False
-      if len(a.fields) != len(b.fields):
-        return False
-
-      equiv = (id(a), id(b))
-      if equiv in assumed_equivs:
-        return True
-
-      assumed_equivs.add(equiv)
-      for i in range(0, len(a.fields)):
-        (ta, va) = a.fields[i]
-        (tb, vb) = b.fields[i]
-        if ta != tb:
-          return False
-        if not cls.is_structurally_equal(va, vb, assumed_equivs):
-          return False
-
-      return True
-
-    elif isinstance(a, float):
-      if not isinstance(b, float):
-        return False
-
-      # Float comparison is tricky and magical and what we're really after is
-      # whether the two values are *exactly* the same. So we compare the binary
-      # representation instead of the values.
-      a_bytes = struct.pack("<d", a)
-      b_bytes = struct.pack("<d", b)
-      return a_bytes == b_bytes
-
-    else:
-      return a == b
+    for data_block in self.test_case.datas:
+      data = data_block.eval()
+      tton = self.test_case.canonical_tton
+      if tton:
+        encoded = plankton.codec.encode_text(data)
+        self.assertEqual(tton.source, encoded)
