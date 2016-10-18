@@ -711,6 +711,9 @@ class TextEncoder(_types.StackingBuilder):
   def on_get_ref(self, key):
     self._push("$%s" % key)
 
+  def on_begin_schema(self, id):
+    assert False
+
   def _maybe_add_ref(self, ref_key, text):
     if ref_key is None:
       return text

@@ -76,6 +76,10 @@ class Visitor(object):
   def on_get_ref(self, offset):
     pass
 
+  @abstractmethod
+  def on_begin_schema(self, template_count):
+    pass
+
 
 class StackingBuilder(Visitor):
   """

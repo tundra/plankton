@@ -165,6 +165,9 @@ class ObjectBuilder(_types.StackingBuilder):
   def on_get_ref(self, key):
     self._push(self._refs[key])
 
+  def on_begin_schema(self, id):
+    assert False
+
   def _maybe_add_ref(self, ref_key, value):
     if not ref_key is None:
       self._refs[ref_key] = value

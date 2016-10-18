@@ -14,6 +14,8 @@ from plankton.codec import _types
 __all__ = ["BinaryDecoder", "BinaryEncoder"]
 
 
+# Value building instructions
+
 INT_0_TAG = 0x00
 INT_1_TAG = 0x01
 INT_2_TAG = 0x02
@@ -81,6 +83,23 @@ STRUCT_N_TAG = 0x88
 ADD_REF_TAG = 0xa0
 GET_REF_TAG = 0xa1
 
+
+# Stream instructions
+
+STREAM_OP = 0xf0
+
+DEFINE_SCHEMA = 0xc0
+
+
+# Secure (sometimes quote-unquote) hash instructions. There's no particular
+# order to these, intentionally, for any new one pull a random number not
+# already used.
+
+SHA_224 = 0x1d
+
+_HASH_NAMES = [
+  (SHA_224, "sha224"),
+]
 
 _INSTRUCTION_DECODERS = [None] * 256
 
@@ -704,6 +723,15 @@ class BinaryEncoder(_types.Visitor):
   def on_get_ref(self, key):
     self._write_tag(GET_REF_TAG)
     self._write_unsigned_int(self._ref_count - key - 1)
+
+  def on_define_schema(self, id):
+    self._write_tag(STREAM_OP)
+    self._write_tag(DEFINE_SCHEMA)
+    self._write_tag(SHA_224)
+    self._write_bytes(id)
+
+  def on_begin_schema(self, length):
+    self._write_unsigned_int(length)
 
   def _maybe_add_ref(self, ref_key):
     if not ref_key is None:

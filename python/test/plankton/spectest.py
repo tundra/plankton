@@ -6,6 +6,7 @@ import unittest
 import uuid
 
 import plankton.codec
+import plankton.schema
 
 
 class SpecTestBlock(object):
@@ -144,16 +145,18 @@ class StreamBlock(ExpressionBlock):
     super(StreamBlock, self).__init__(config)
     self._instrs = instrs
 
-  def eval(self):
-    templates = {}
+  def generate(self):
+    schema = plankton.schema.Schema()
     for line in self._instrs:
-      template_match = re.match(r"([^(]+)\(\) => (.*)", line)
+      template_match = re.match(r"-\s+([^(]+)\(\)\s+=>\s+(.*)", line)
       if template_match:
-        name = template_match.group(1)
-        expr = template_match.group(2)
-      value = self._eval_composite(None, expr, None)
-      templates[name] = value
-    return templates
+        name = self._eval_composite(None, template_match.group(1), None)
+        value = self._eval_composite(None, template_match.group(2), None)
+        template = plankton.schema.Template(name, None, value)
+        schema.add_template(template)
+      elif line == "! schema":
+        yield ("schema", schema)
+        schema = plankton.schema.Schema()
 
   @staticmethod
   def _parse_concrete(config, instrs):
