@@ -727,8 +727,11 @@ class BinaryEncoder(_types.Visitor):
   def on_define_schema(self, id):
     self._write_tag(STREAM_OP)
     self._write_tag(DEFINE_SCHEMA)
-    self._write_tag(SHA_224)
-    self._write_bytes(id)
+    self._write_byte(id.type.code())
+    bytes = id.sum
+    assert (len(bytes) % 4) == 0
+    self._write_unsigned_int(len(bytes) // 4)
+    self._write_bytes(bytes)
 
   def on_begin_schema(self, length):
     self._write_unsigned_int(length)

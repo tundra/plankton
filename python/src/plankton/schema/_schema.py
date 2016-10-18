@@ -2,6 +2,7 @@ import hashlib
 import io
 
 from plankton.codec._binary import BinaryEncoder
+from plankton.schema import _id
 
 
 __all__ = [
@@ -44,9 +45,10 @@ class Schema(object):
     return self._id
 
   def _calc_id(self):
-    hasher = hashlib.sha224()
+    type = _id.IdType.default()
+    hasher = type.new_hasher()
     hasher.update(self.encoded)
-    return hasher.digest()
+    return _id.Id(type, hasher.digest())
 
   @property
   def encoded(self):
